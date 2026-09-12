@@ -1,6 +1,8 @@
 # Roadmap
 
-## v0.1.8 - mevcut iskelet
+## v0.1.10 - mevcut iskelet
+
+- Oversized task fault-containment: parent + worker seviyesinde <=220 karakter garantisi
 
 - XTTS Windows-safe kalici subprocess havuzu: 1-4 worker, dinamik scheduler ve acik fallback telemetrisi.
 - DeepSpeed Windows Build Tools otomasyonu ve `nvidia-smi` cihaz VRAM fallback telemetrisi.
@@ -74,3 +76,11 @@
 - regression audio fixtures
 - ASR tabanlı kalite doğrulama
 - crash recovery ve kullanıcı dostu hata raporu
+
+
+## Sonraki performans calismalari
+
+- Gercek RTX 3090 AutoTune sonucuna gore WDDM CUDA context contention olcumu
+- DeepSpeed + AutoTune kombinasyonunda worker-basi bellek ve throughput profili
+- Gerekirse tek process icinde birden fazla model/stream deneyi (yalniz thread-safety dogrulanirsa)
+- AutoTune sonucunu GPU modeli + PyTorch/CUDA + XTTS ayarlari anahtariyla kalici profile cache etme

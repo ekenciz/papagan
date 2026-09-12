@@ -19,6 +19,19 @@ from .tts.xtts import (
 )
 
 
+def parse_xtts_workers(value: str) -> int:
+    text = value.strip().lower()
+    if text in {"auto", "otomatik", "0"}:
+        return 0
+    try:
+        count = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("XTTS worker degeri auto veya 1-4 olmali.") from exc
+    if count not in {1, 2, 3, 4}:
+        raise argparse.ArgumentTypeError("XTTS worker degeri auto veya 1-4 olmali.")
+    return count
+
+
 def parse_chapter_selector(value: str) -> tuple[int, ...]:
     selected: set[int] = set()
     for token in (part.strip() for part in value.split(",")):
@@ -76,10 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     convert.add_argument(
         "--xtts-workers",
-        type=int,
-        choices=[1, 2, 3, 4],
-        default=2,
-        help="CUDA'da paralel XTTS worker sayisi 1-4 (varsayilan: 2; 3-4 deneysel)",
+        type=parse_xtts_workers,
+        default=0,
+        metavar="auto|1|2|3|4",
+        help="CUDA'da XTTS worker sayisi; auto 1-4 worker'i olcer ve en hizlisini secer (varsayilan: auto)",
     )
     convert.add_argument("--accept-model-license", action="store_true")
     convert.add_argument("--voice-consent", action="store_true")

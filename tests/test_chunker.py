@@ -1,4 +1,4 @@
-from epub2m4b.core.chunker import chunk_text, split_sentences
+from epub2m4b.core.chunker import chunk_text, enforce_chunk_limit, split_sentences
 from epub2m4b.tts.xtts import XTTS_SAFE_MAX_CHARS
 
 
@@ -35,3 +35,11 @@ def test_xtts_safe_limit_splits_long_turkish_paragraphs():
     chunks = chunk_text(text, XTTS_SAFE_MAX_CHARS)
     assert len(chunks) > 1
     assert all(len(chunk) <= XTTS_SAFE_MAX_CHARS for chunk in chunks)
+
+
+def test_enforce_chunk_limit_repairs_oversized_input():
+    chunks = ["a" * 246, "kisa"]
+    repaired = enforce_chunk_limit(chunks, XTTS_SAFE_MAX_CHARS)
+    assert len(repaired) == 3
+    assert all(len(chunk) <= XTTS_SAFE_MAX_CHARS for chunk in repaired)
+    assert "".join(repaired[:2]) == "a" * 246

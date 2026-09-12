@@ -12,10 +12,10 @@ from typing import Callable, Any
 from platformdirs import user_cache_dir
 
 from epub2m4b.tts.registry import create_engine
-from epub2m4b.tts.xtts_subprocess_pool import XTTSSubprocessPool
+from epub2m4b.tts.xtts_subprocess_pool import AUTO_WORKERS, AUTOTUNE_TARGET_REALTIME, XTTSSubprocessPool
 
 from .audio import assemble_m4b, audio_duration, require_ffmpeg
-from .chunker import chunk_text
+from .chunker import chunk_text, enforce_chunk_limit
 from .epub import parse_epub
 from .gpu import nvidia_runtime_stats
 from .models import ChapterTiming, PipelineOptions, QUALITY_PRESETS
@@ -26,6 +26,13 @@ StatsCallback = Callable[[dict[str, object]], None]
 
 
 PERF_WARMUP_CHUNKS = 10
+
+XTTS_AUTOTUNE_TEXTS = (
+    "Bu deneme metni Türkçe sesli kitap üretim hızını kararlı biçimde ölçmek için kullanılır.",
+    "Birden fazla XTTS worker aynı ekran kartında eş zamanlı çalışırken toplam verim karşılaştırılır.",
+    "Amaç ses kalitesini değiştirmeden uygun worker sayısını otomatik olarak seçmektir.",
+    "Uzun parçalar önce planlanarak son worker kuyruğundaki bekleme süresi azaltılır.",
+)
 
 
 def _format_seconds(value: float) -> str:
@@ -364,8 +371,9 @@ class ConversionPipeline:
             "performance_mode": str(options.engine_options.get("performance_mode", PERFORMANCE_MODE_OPTIMIZED)),
             "reference_wav": str(options.reference_wav) if options.reference_wav else None,
         }
+        worker_label = "AutoTune 1-4" if workers == AUTO_WORKERS else str(workers)
         self.log(
-            f"XTTS paralel mod: {workers} bagimsiz subprocess worker; aygit={resolved_device}; "
+            f"XTTS paralel mod: {worker_label} bagimsiz subprocess worker; aygit={resolved_device}; "
             f"mod={config['performance_mode']}."
         )
         self.log(
@@ -391,19 +399,51 @@ class ConversionPipeline:
                 completed_jobs=completed,
                 total_jobs=len(jobs),
                 runtime=last_runtime,
-                extra={"effective_workers": workers},
+                extra={
+                    "effective_workers": 1 if workers == AUTO_WORKERS else workers,
+                    "requested_workers": workers,
+                    "worker_mode": "auto" if workers == AUTO_WORKERS else "manual",
+                },
             )
 
         pending_jobs = [job for job in jobs if not job.cached]
         if not pending_jobs:
-            return last_runtime, workers
+            return last_runtime, (1 if workers == AUTO_WORKERS else workers)
 
         pool = XTTSSubprocessPool(config, workers, log=self.log)
         try:
             ready = pool.start()
             active_workers = pool.active_workers
+            requested_display = "auto" if workers == AUTO_WORKERS else str(workers)
+            self.log(f"XTTS paralel havuz hazir: {active_workers}/{requested_display} worker aktif.")
+
+            autotune_factors: dict[int, float] = {}
+            if workers == AUTO_WORKERS and active_workers > 1:
+                tune_dir = jobs[0].wav_path.parent / "_xtts_autotune"
+                shutil.rmtree(tune_dir, ignore_errors=True)
+                try:
+                    self.log(
+                        f"XTTS AutoTune basliyor: 1-{active_workers} worker gercek inference ile olculecek; "
+                        f"hedef {AUTOTUNE_TARGET_REALTIME:.2f}x realtime."
+                    )
+                    tuned = pool.autotune_worker_count(
+                        output_dir=tune_dir,
+                        texts=XTTS_AUTOTUNE_TEXTS,
+                        cancel_check=self._check_cancel,
+                        target_realtime=AUTOTUNE_TARGET_REALTIME,
+                    )
+                    autotune_factors = dict(tuned.factors)
+                    pool.trim_workers(tuned.chosen_workers)
+                    active_workers = pool.active_workers
+                    ready = [worker.ready for worker in pool.workers if worker.ready is not None]
+                    self.log(
+                        f"XTTS AutoTune secimi: {active_workers} worker; "
+                        f"olculen={autotune_factors.get(active_workers, 0.0):.2f}x realtime."
+                    )
+                finally:
+                    shutil.rmtree(tune_dir, ignore_errors=True)
+
             tracker.workers = active_workers
-            self.log(f"XTTS paralel havuz hazir: {active_workers}/{workers} worker aktif.")
             for state in ready:
                 allocated = state.runtime.get("vram_allocated_gb")
                 if allocated is not None:
@@ -412,6 +452,7 @@ class ConversionPipeline:
                     effective_modes[state.pid] = state.effective_performance_mode
 
             jobs_by_id = {job.task_id: job for job in pending_jobs}
+            worker_perf: dict[int, dict[str, float]] = {}
 
             def on_result(result: dict[str, Any]) -> None:
                 nonlocal completed, last_runtime
@@ -430,6 +471,11 @@ class ConversionPipeline:
                     worker_wall_seconds=worker_wall,
                 )
                 pid = int(result.get("worker_pid") or 0)
+                if pid:
+                    metrics = worker_perf.setdefault(pid, {"audio": 0.0, "wall": 0.0, "chunks": 0.0})
+                    metrics["audio"] += float(job.duration)
+                    metrics["wall"] += max(0.0, worker_wall)
+                    metrics["chunks"] += 1.0
                 worker_runtime = dict(result.get("runtime") or {})
                 allocated = worker_runtime.get("vram_allocated_gb")
                 if pid and allocated is not None:
@@ -440,11 +486,19 @@ class ConversionPipeline:
 
                 completed += 1
                 last_runtime = nvidia_runtime_stats(resolved_device, min_interval=0.25)
+                worker_factors = {
+                    str(worker_pid): (values["audio"] / values["wall"] if values["wall"] > 0 else 0.0)
+                    for worker_pid, values in worker_perf.items()
+                }
                 extra: dict[str, Any] = {
                     "effective_workers": active_workers,
                     "requested_workers": workers,
+                    "worker_mode": "auto" if workers == AUTO_WORKERS else "manual",
                     "vram_workers_allocated_gb": round(sum(worker_allocated.values()), 2),
+                    "worker_realtime_factors": worker_factors,
                 }
+                if autotune_factors:
+                    extra["autotune_factors"] = {str(k): v for k, v in autotune_factors.items()}
                 if effective_modes:
                     extra["effective_performance_mode"] = "+".join(sorted(set(effective_modes.values())))
                 self._emit_job_progress(
@@ -460,7 +514,19 @@ class ConversionPipeline:
                 {"task_id": job.task_id, "text": job.text, "output_path": str(job.wav_path)}
                 for job in pending_jobs
             ]
-            pool.map_tasks(tasks, on_result, cancel_check=self._check_cancel)
+            pool.map_tasks(
+                tasks,
+                on_result,
+                cancel_check=self._check_cancel,
+                worker_limit=active_workers,
+                prioritize=True,
+            )
+            if worker_perf:
+                details = []
+                for pid, values in sorted(worker_perf.items()):
+                    factor = values["audio"] / values["wall"] if values["wall"] > 0 else 0.0
+                    details.append(f"PID {pid}: {factor:.2f}x/{int(values['chunks'])} parca")
+                self.log("XTTS worker verimleri: " + " | ".join(details))
             return last_runtime, active_workers
         finally:
             pool.close()
@@ -542,15 +608,29 @@ class ConversionPipeline:
         prepared: list[tuple[str, list[str]]] = []
         total_chunks = 0
         total_chars = 0
+        repaired_chunks = 0
+        max_chunk_chars = 0
         for chapter in chapters:
-            chunks = chunk_text(chapter.text, info.recommended_max_chars)
+            raw_chunks = chunk_text(chapter.text, info.recommended_max_chars)
+            chunks = enforce_chunk_limit(raw_chunks, info.recommended_max_chars)
+            if len(chunks) != len(raw_chunks):
+                repaired_chunks += max(0, len(chunks) - len(raw_chunks))
             if chunks:
                 prepared.append((chapter.title, chunks))
                 total_chunks += len(chunks)
                 total_chars += sum(len(chunk) for chunk in chunks)
+                max_chunk_chars = max(max_chunk_chars, max(len(chunk) for chunk in chunks))
         if total_chunks == 0:
             raise RuntimeError("Seslendirilecek metin parcasi olusturulamadi.")
-        self.log(f"{total_chunks} TTS parcasi hazirlandi (hedef: <= {info.recommended_max_chars} karakter).")
+        self.log(
+            f"{total_chunks} TTS parcasi hazirlandi "
+            f"(hedef: <= {info.recommended_max_chars} karakter; gercek maks: {max_chunk_chars})."
+        )
+        if repaired_chunks:
+            self.log(
+                "Chunk siniri savunmasi: "
+                f"{repaired_chunks} ek parca olusturularak oversized metin worker'a gitmeden bolundu."
+            )
 
         fingerprint = self._book_fingerprint(
             options.epub_path,
@@ -573,13 +653,17 @@ class ConversionPipeline:
             engine_options=options.engine_options,
         )
         run_started = time.perf_counter()
-        requested_workers = int(options.engine_options.get("worker_count", 1) or 1)
-        requested_workers = max(1, min(requested_workers, 4))
+        requested_workers = int(options.engine_options.get("worker_count", 1))
+        requested_workers = max(AUTO_WORKERS, min(requested_workers, 4))
         resolved_device = self._resolve_device(options.device)
-        parallel_xtts = options.engine_id == "xtts" and requested_workers > 1 and resolved_device.startswith("cuda")
-        if options.engine_id == "xtts" and requested_workers > 1 and not parallel_xtts:
-            self.log("XTTS coklu-worker yalniz CUDA'da etkin; tek worker kullanilacak.")
-        effective_workers = requested_workers if parallel_xtts else 1
+        parallel_xtts = (
+            options.engine_id == "xtts"
+            and requested_workers != 1
+            and resolved_device.startswith("cuda")
+        )
+        if options.engine_id == "xtts" and requested_workers != 1 and not parallel_xtts:
+            self.log("XTTS coklu-worker/AutoTune yalniz CUDA'da etkin; tek worker kullanilacak.")
+        effective_workers = 1 if requested_workers == AUTO_WORKERS else (requested_workers if parallel_xtts else 1)
         tracker = _PerformanceTracker(total_chars, run_started, effective_workers)
 
         succeeded = False
@@ -590,7 +674,7 @@ class ConversionPipeline:
                         options=options,
                         jobs=jobs,
                         tracker=tracker,
-                        workers=effective_workers,
+                        workers=requested_workers,
                         resolved_device=resolved_device,
                     )
                 except ConversionCancelled:

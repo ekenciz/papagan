@@ -256,7 +256,7 @@ def test_pipeline_selects_two_worker_xtts_path(monkeypatch, tmp_path):
                 cached=False,
                 worker_wall_seconds=0.05,
             )
-        return {"device": "cuda"}
+        return {"device": "cuda"}, 2
 
     monkeypatch.setattr(ConversionPipeline, "_run_parallel_xtts_jobs", fake_parallel)
     options = PipelineOptions(
@@ -269,6 +269,62 @@ def test_pipeline_selects_two_worker_xtts_path(monkeypatch, tmp_path):
     ConversionPipeline().run(options)
 
     assert called["parallel"] == 1
+    assert output.is_file()
+
+
+def test_pipeline_selects_auto_xtts_path_with_worker_zero(monkeypatch, tmp_path):
+    epub = tmp_path / "book.epub"
+    output = tmp_path / "auto.m4b"
+    make_epub(epub)
+
+    class FakeXTTS(FakeEngine):
+        info = EngineInfo(
+            id="xtts",
+            name="Fake XTTS",
+            description="test",
+            license_name="test",
+            license_url="https://example.invalid",
+            commercial_use=False,
+            recommended_max_chars=100,
+            gpu_recommended=True,
+        )
+
+    engine = FakeXTTS()
+    seen = {}
+    monkeypatch.setattr("epub2m4b.core.pipeline.create_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("epub2m4b.core.pipeline.user_cache_dir", lambda _name: str(tmp_path / "cache"))
+    monkeypatch.setattr("epub2m4b.core.pipeline.require_ffmpeg", lambda: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("epub2m4b.core.pipeline.ConversionPipeline._resolve_device", lambda self, _device: "cuda")
+    monkeypatch.setattr(
+        "epub2m4b.core.pipeline.assemble_m4b",
+        lambda **kwargs: kwargs["output_path"].write_bytes(b"m4b"),
+    )
+
+    def fake_parallel(self, *, jobs, tracker, workers, **_kwargs):
+        seen["workers"] = workers
+        for job in jobs:
+            rate = 8000
+            frames = 800
+            with wave.open(str(job.wav_path), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(rate)
+                wav.writeframes(b"\x00\x00" * frames)
+            job.duration = frames / rate
+            tracker.record(chars=len(job.text), audio_seconds=job.duration, cached=False, worker_wall_seconds=0.05)
+        return {"device": "cuda"}, 3
+
+    monkeypatch.setattr(ConversionPipeline, "_run_parallel_xtts_jobs", fake_parallel)
+    options = PipelineOptions(
+        epub,
+        output,
+        "xtts",
+        accept_model_license=True,
+        engine_options={"worker_count": 0, "performance_mode": "optimized"},
+    )
+    ConversionPipeline().run(options)
+
+    assert seen["workers"] == 0
     assert output.is_file()
 
 
@@ -326,3 +382,25 @@ def test_parallel_xtts_failure_falls_back_to_single_worker_and_reuses_completed_
     # The already published first parallel chunk is converted to a cache hit,
     # so the single-worker fallback only synthesizes the remaining chunks.
     assert engine.calls >= 1
+
+
+def test_pipeline_defensively_repairs_oversized_chunker_output(monkeypatch, tmp_path):
+    epub = tmp_path / "book.epub"
+    output = tmp_path / "repaired.m4b"
+    make_epub(epub)
+    engine = FakeEngine()
+
+    monkeypatch.setattr("epub2m4b.core.pipeline.create_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("epub2m4b.core.pipeline.user_cache_dir", lambda _name: str(tmp_path / "cache"))
+    monkeypatch.setattr("epub2m4b.core.pipeline.require_ffmpeg", lambda: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("epub2m4b.core.pipeline.chunk_text", lambda _text, _limit: ["x" * 150])
+    monkeypatch.setattr(
+        "epub2m4b.core.pipeline.assemble_m4b",
+        lambda **kwargs: kwargs["output_path"].write_bytes(b"m4b"),
+    )
+
+    ConversionPipeline().run(PipelineOptions(epub, output, "fake"))
+
+    assert engine.texts
+    assert all(len(text) <= FakeEngine.info.recommended_max_chars for text in engine.texts)
+    assert "".join(engine.texts) == "x" * 150

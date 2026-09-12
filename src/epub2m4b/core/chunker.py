@@ -78,3 +78,33 @@ def chunk_text(text: str, max_chars: int) -> list[str]:
         flush()  # Paragraph sinirinda dogal duraklamayi koru.
 
     return chunks
+
+
+def enforce_chunk_limit(chunks: list[str], max_chars: int) -> list[str]:
+    """Defensively guarantee that every chunk is at or below ``max_chars``.
+
+    ``chunk_text`` already promises this invariant.  This second boundary is
+    intentionally cheap and exists because XTTS subprocesses are a separate
+    Python process: a single oversized task must never tear down an otherwise
+    healthy multi-worker pool.  If an upstream parser/chunker regression ever
+    leaks an oversized string, it is re-chunked before dispatch.
+    """
+
+    if max_chars < 80:
+        raise ValueError("max_chars en az 80 olmali")
+    repaired: list[str] = []
+    for chunk in chunks:
+        text = str(chunk).strip()
+        if not text:
+            continue
+        if len(text) <= max_chars:
+            repaired.append(text)
+            continue
+        repaired.extend(chunk_text(text, max_chars))
+
+    oversized = [len(chunk) for chunk in repaired if len(chunk) > max_chars]
+    if oversized:
+        raise RuntimeError(
+            f"Chunk siniri savunmasi basarisiz: maksimum {max(oversized)} > {max_chars}."
+        )
+    return repaired

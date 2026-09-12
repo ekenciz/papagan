@@ -185,3 +185,17 @@ The real Windows v0.1.7 run exposed a Python package bootstrap cycle before any 
 v0.1.8 removes eager public-API imports from both package initializers. `epub2m4b.core` and `epub2m4b.tts` expose their historical names through module-level lazy `__getattr__`. Subprocess workers can therefore import `core.models` and `tts.xtts` without pulling the conversion pipeline or registry into their bootstrap path. A regression test launches the actual module with `python -m`; reaching worker `main()` and exiting with the expected no-init code proves the import graph is acyclic before heavy model dependencies are touched.
 
 DeepSpeed Windows installation is also aligned with upstream's source-build path: pin one release, download its sdist, enter the VS2022 x64 Developer environment and run `build_win.bat`, then install the generated wheel. This remains optional; normal optimized multi-worker inference is independent of DeepSpeed.
+
+
+## v0.1.9 adaptive XTTS scheduler
+
+XTTS multi-worker katmani artik iki ayri secim modeli sunar: manuel `1..4` ve `AUTO_WORKERS=0`. Auto modunda modeller sirali yuklenir ve her worker sonrasinda cihaz-geneli VRAM yeniden kontrol edilir; manuel mod hizli startup icin mevcut eszamanli baslatma yolunu korur. Auto modunda pool, cihaz-geneli VRAM telemetrisinden tahmini guvenli worker tavanini hesaplar; modeller bir kez yuklendikten sonra `autotune_worker_count()` ayni pool icinde 1..N aktif worker subset'lerini olcer. Bu tasarim, 1/2/3/4 benchmark icin modeli tekrar tekrar yukleme maliyetini ortadan kaldirir.
+
+Task scheduler FIFO yerine LPT (metin uzunlugu azalan) kullanir. TTS chunk'lari bagimsiz dosyalara yazildigi ve `_finalize_order()` sequence'e gore siraladigi icin dispatch sirasini degistirmek audiobook semantigini degistirmez. LPT yalniz toplam makespan'i ve tail-idle suresini azaltmayi hedefler.
+
+Multi-process XTTS worker'lar CUDA'ya odaklanabilsin diye child environment'ta OMP/MKL/OpenBLAS/NumExpr thread sayilari 1'e, worker bootstrap'ta PyTorch intra/inter-op thread sayilari da 1'e sinirlanir. Bu, worker sayisi arttikca host CPU oversubscription kaynakli throughput kaybini azaltir.
+
+
+## v0.1.10 chunk-boundary fault containment
+
+XTTS icin 220 karakter limiti artik iki proses sinirinda da invariant kabul edilir. Parent pipeline `chunk_text()` sonrasinda `enforce_chunk_limit()` uygular. Subprocess worker ise IPC uzerinden limit-ustu bir task alirsa task_error vermek yerine lokal re-chunk + WAV concatenate ile ayni task'i tamamlar. Bu ikinci katman normal akis degil, fault-containment mekanizmasidir; amaci tek bozuk gorevin tum multi-worker pool'u kapatip pahali tek-worker fallback'e gecmesini engellemektir.

@@ -13,7 +13,7 @@ from epub2m4b.core.dependencies import install_engine_dependencies, install_xtts
 from epub2m4b.core.models import PipelineOptions
 from epub2m4b.core.pipeline import ConversionCancelled, ConversionPipeline
 from epub2m4b.tts.xtts import XTTSEngine
-from epub2m4b.tts.xtts_subprocess_pool import XTTSSubprocessPool
+from epub2m4b.tts.xtts_subprocess_pool import AUTO_WORKERS, XTTSSubprocessPool
 
 
 class ConversionWorker(QThread):
@@ -195,7 +195,7 @@ class XTTSBenchmarkWorker(QThread):
         self.speaker = speaker
         self.speed = speed
         self.performance_mode = performance_mode
-        self.worker_count = max(1, min(int(worker_count), 4))
+        self.worker_count = max(AUTO_WORKERS, min(int(worker_count), 4))
         self.reference_wav = reference_wav
 
     def _benchmark_single(self, root: Path) -> dict:
@@ -243,12 +243,44 @@ class XTTSBenchmarkWorker(QThread):
             "performance_mode": self.performance_mode,
             "reference_wav": str(self.reference_wav) if self.reference_wav else None,
         }
-        self.log_message.emit(f"Benchmark: {self.worker_count} kalici XTTS subprocess worker yukleniyor...")
+        label = "AutoTune 1-4" if self.worker_count == AUTO_WORKERS else str(self.worker_count)
+        self.log_message.emit(f"Benchmark: {label} kalici XTTS subprocess worker yukleniyor...")
         pool = XTTSSubprocessPool(config, self.worker_count, log=self.log_message.emit)
         try:
             ready = pool.start()
             active_workers = pool.active_workers
-            self.log_message.emit(f"Benchmark worker havuzu: {active_workers}/{self.worker_count} aktif.")
+            requested_label = "auto" if self.worker_count == AUTO_WORKERS else str(self.worker_count)
+            self.log_message.emit(f"Benchmark worker havuzu: {active_workers}/{requested_label} aktif.")
+
+            if self.worker_count == AUTO_WORKERS:
+                tuned = pool.autotune_worker_count(
+                    output_dir=root / "autotune",
+                    texts=self._TEXTS,
+                    target_realtime=4.0,
+                )
+                pool.trim_workers(tuned.chosen_workers)
+                ready = [worker.ready for worker in pool.workers if worker.ready is not None]
+                from epub2m4b.core.gpu import nvidia_runtime_stats
+
+                runtime = nvidia_runtime_stats(self.device, min_interval=0.0)
+                allocated = 0.0
+                for state in ready:
+                    value = state.runtime.get("vram_allocated_gb")
+                    if value is not None:
+                        allocated += float(value)
+                modes = {state.effective_performance_mode for state in ready if state.effective_performance_mode}
+                return {
+                    "realtime_factor": float(tuned.factors.get(tuned.chosen_workers, 0.0)),
+                    "audio_seconds": 0.0,
+                    "wall_seconds": 0.0,
+                    "workers": tuned.chosen_workers,
+                    "requested_workers": AUTO_WORKERS,
+                    "autotune_factors": {str(k): v for k, v in tuned.factors.items()},
+                    "target_reached": tuned.target_reached,
+                    "effective_performance_mode": "+".join(sorted(modes)) if modes else self.performance_mode,
+                    "vram_workers_allocated_gb": round(allocated, 2),
+                    **runtime,
+                }
 
             warmup_tasks = []
             for index in range(max(active_workers * 2, 2)):
@@ -322,7 +354,7 @@ class XTTSBenchmarkWorker(QThread):
                 except Exception:
                     device = "cpu"
             self.device = device
-            if self.worker_count > 1 and str(device).startswith("cuda"):
+            if self.worker_count != 1 and str(device).startswith("cuda"):
                 result = self._benchmark_parallel(root)
             else:
                 result = self._benchmark_single(root)

@@ -275,3 +275,27 @@ Ayni koruma Hugging Face kullanan MMS motoruna da eklendi. Farkli OSError turler
 5. DeepSpeed'in Windows'ta source distribution yayinladigi ve upstream Windows yolunun `build_win.bat` oldugu dikkate alinarak kurulum akisi sadeleştirildi. DeepSpeed `0.19.6`'ya sabitlendi ve Windows'ta dogrudan sdist -> build_win.bat -> wheel install yolu kullaniliyor.
 6. DeepSpeed kurulum hatasinda GUI `Optimize` moda otomatik donuyor, fakat 2/3/4 worker secimi korunuyor.
 7. `pytest -q`: 46/46 PASS. `compileall`: PASS. CLI help smoke: PASS. Worker module bootstrap smoke: PASS.
+
+
+## 2026-09-12 - v0.1.9 AutoTune scheduler ve 4x hedefi
+
+1. v0.1.8'de manuel 1/2/3/4 worker seciminin kullanici tarafindan tek tek denenmesi gerektigi belirlendi.
+2. `AUTO_WORKERS=0` semantigi eklendi; GUI/CLI varsayilani AutoTune yapildi.
+3. GPU cihaz VRAM'ine gore 1-4 arasinda guvenli worker tavanini hesaplayan on-kontrol eklendi; Auto modunda workerlar sirali yuklenip her modelden sonra VRAM tekrar kontrol ediliyor.
+4. Ayni yuklenmis subprocess pool icinde 1..N worker subset benchmark'i eklendi; model tekrar yuklenmiyor.
+5. 4.00x hedefini gecen ilk worker sayisi seciliyor; hedef yoksa en hizli sonuc, %3 yakinlikta daha dusuk worker sayisi seciliyor.
+6. Book-task dispatch FIFO'dan longest-processing-time-first'e alindi; final M4B sirasi sequence ile korunuyor.
+7. Child process CPU thread havuzlari kisitlandi ve CUDA expandable allocator acildi.
+8. Worker PID bazli audio/wall/chunk istatistikleri ve GUI worker throughput araligi eklendi.
+9. CLI `--xtts-workers auto` destegi ve GUI AutoTune benchmark sonucu kazanan worker'i otomatik secme eklendi.
+10. Yeni scheduler/AutoTune testleriyle `pytest -q`: 52/52 PASS.
+
+
+## 2026-09-12 - v0.1.10 oversized XTTS task fault containment
+
+1. Gercek RTX 3090 logunda iki subprocess'in basariyla `2/2` hazir oldugu, ancak LPT ile ilk giden gorevlerin 246 ve 232 karakter oldugu icin worker `XTTS_SAFE_MAX_CHARS=220` kontrolunde dustugu goruldu.
+2. Parent pipeline'a `enforce_chunk_limit()` eklendi; worker job'lari olusmadan once tum chunk'lar ikinci kez sinirlanir.
+3. Hazirlama loguna `gercek maks` parcasi eklendi.
+4. Worker prosesine son-emniyet re-chunk yolu eklendi. IPC'den oversized metin gelirse alt parcalar ayni model instance'inda sentezlenip tek WAV'a birlestirilir; task_error uretilmez.
+5. Parent onarimi ve worker-local onarim icin regresyon testleri eklendi.
+6. `pytest -q`: 55/55 PASS.

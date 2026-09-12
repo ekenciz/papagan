@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 from typing import Any, TextIO
 
-from .xtts import XTTSEngine
+from .xtts import XTTS_SAFE_MAX_CHARS, XTTSEngine
 
 _PROTOCOL_OUT: TextIO | None = None
 _ENGINE: XTTSEngine | None = None
@@ -41,6 +41,18 @@ def _stable_seed(task_id: str, text: str) -> int:
 
 def _configure_engine(config: dict[str, Any]) -> None:
     global _ENGINE, _REFERENCE_WAV
+    # In multi-worker mode each subprocess should feed CUDA, not fight the other
+    # workers for every CPU core. Keep host-side PyTorch pools intentionally small.
+    try:
+        import torch
+
+        torch.set_num_threads(1)
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
     _REFERENCE_WAV = Path(config["reference_wav"]) if config.get("reference_wav") else None
     _ENGINE = XTTSEngine(
         device=str(config["device"]),
@@ -52,6 +64,66 @@ def _configure_engine(config: dict[str, Any]) -> None:
         log=_capture_log,
     )
     _ENGINE.load()
+
+
+def _concat_wav_parts(parts: list[Path], output_path: Path) -> tuple[float, int]:
+    """Concatenate worker-local XTTS WAV parts without invoking FFmpeg.
+
+    This is a last-resort safety net. Normal jobs are already <=220 chars in
+    the parent process, but keeping the guard inside the independent worker
+    prevents one malformed task from collapsing a 2-4 worker conversion.
+    """
+
+    import numpy as np
+    import soundfile as sf
+
+    arrays = []
+    sample_rate: int | None = None
+    for part in parts:
+        audio, rate = sf.read(str(part), dtype="float32", always_2d=False)
+        if sample_rate is None:
+            sample_rate = int(rate)
+        elif int(rate) != sample_rate:
+            raise RuntimeError(
+                f"XTTS worker ara WAV ornekleme hizi uyusmuyor: {rate} != {sample_rate}."
+            )
+        arrays.append(np.asarray(audio, dtype=np.float32))
+    if not arrays or sample_rate is None:
+        raise RuntimeError("XTTS worker birlestirilecek ara WAV uretmedi.")
+    merged = np.concatenate(arrays, axis=0)
+    sf.write(str(output_path), merged, sample_rate, subtype="PCM_16")
+    duration = float(merged.shape[0] / sample_rate)
+    return duration, sample_rate
+
+
+def _synthesize_guarded(text: str, output_path: Path):
+    assert _ENGINE is not None
+    if len(text) <= XTTS_SAFE_MAX_CHARS:
+        return _ENGINE.synthesize(text, output_path, _REFERENCE_WAV)
+
+    # Parent-side chunking should make this unreachable.  Still recover locally
+    # instead of returning task_error, because map_tasks intentionally stops the
+    # whole pool on a worker error to protect cache consistency.
+    from epub2m4b.core.chunker import chunk_text, enforce_chunk_limit
+    from epub2m4b.core.models import AudioArtifact
+
+    chunks = enforce_chunk_limit(chunk_text(text, XTTS_SAFE_MAX_CHARS), XTTS_SAFE_MAX_CHARS)
+    _capture_log(
+        "XTTS worker savunmaci yeniden-bolme: "
+        f"{len(text)} karakter -> {len(chunks)} parca (<= {XTTS_SAFE_MAX_CHARS})."
+    )
+    parts: list[Path] = []
+    try:
+        for index, chunk in enumerate(chunks, start=1):
+            part = output_path.with_name(f"{output_path.stem}.guard.{os.getpid()}.{index:03d}.wav")
+            part.unlink(missing_ok=True)
+            _ENGINE.synthesize(chunk, part, _REFERENCE_WAV)
+            parts.append(part)
+        duration, sample_rate = _concat_wav_parts(parts, output_path)
+        return AudioArtifact(output_path, duration, sample_rate)
+    finally:
+        for part in parts:
+            part.unlink(missing_ok=True)
 
 
 def _synthesize(task: dict[str, Any]) -> dict[str, Any]:
@@ -77,7 +149,7 @@ def _synthesize(task: dict[str, Any]) -> dict[str, Any]:
 
     started = time.perf_counter()
     try:
-        artifact = _ENGINE.synthesize(text, part_path, _REFERENCE_WAV)
+        artifact = _synthesize_guarded(text, part_path)
         os.replace(part_path, output_path)
     finally:
         part_path.unlink(missing_ok=True)

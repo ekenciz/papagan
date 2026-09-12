@@ -1,36 +1,45 @@
-# Final QA - 2026-09-12 - v0.1.8
+# Final QA - 2026-09-12 - v0.1.10
 
-## Gercek Windows bulgusu
+## v0.1.10 ek regresyonlar
 
-v0.1.7 logunda iki XTTS subprocess de model yuklemeden once `ImportError: cannot import name create_engine from partially initialized module epub2m4b.tts.registry` ile cikti. Bu nedenle secili 2 worker hic aktif olamadi ve pipeline tek-worker fallback ile ~0.97x realtime tamamlandi.
+- `enforce_chunk_limit()` 246 karakterlik sentetik parcayi <=220 alt parcalara ayiriyor: PASS
+- Parent pipeline'a bilerek 150 karakterlik hatali chunker cikisi verildiginde engine limitinin altina yeniden boluyor: PASS
+- XTTS worker 246 karakterlik IPC task'ini pool error vermeden iki alt senteze ayirip tek WAV uretiyor: PASS
+- Tum test paketi: **55/55 PASS**
+- `compileall`: PASS
 
-## v0.1.8 duzeltmeleri
+Gercek Windows/RTX testindeki hedef log: `2/2 worker aktif` sonrasinda `XTTS Turkce metin parcasi guvenli siniri asti` nedeniyle tek-worker fallback gorulmemeli.
 
-- `epub2m4b.core.__init__` ve `epub2m4b.tts.__init__` eager importlari lazy public API'ye cevrildi.
-- Gercek `python -m epub2m4b.tts.xtts_worker_process` bootstrap yolu test edildi; circular import yok.
-- Public import uyumlulugu (`ConversionPipeline`, `PipelineOptions`, `parse_epub`, `create_engine`, `engine_infos`) regresyon testi ile korunuyor.
-- DeepSpeed Windows kurulumu upstream `build_win.bat` source-build yoluna alindi ve `deepspeed==0.19.6` pinlendi.
-- DeepSpeed kurulum hatasi GUI'yi Optimize moda aliyor; coklu-worker secimi kaybolmuyor.
+## Degisiklik kapsami
+
+- XTTS AutoTune worker secimi (`0 = auto`)
+- VRAM-aware 1-4 worker tavan hesaplama
+- Ayni yuklu modellerle 1..N throughput benchmark ve 4.00x hedef secimi
+- Longest-processing-time-first chunk scheduler
+- Multi-worker CPU thread oversubscription azaltma
+- Worker bazli realtime telemetrisi
+- GUI/CLI AutoTune entegrasyonu
 
 ## Otomatik testler
 
-- `pytest -q`: **46 passed**
+- `pytest -q`: **55 passed**
 - `python -m compileall -q src tests`: PASS
-- `PYTHONPATH=src python -m epub2m4b.cli --help`: PASS
-- Worker bootstrap smoke: `python -m epub2m4b.tts.xtts_worker_process` bos stdin ile beklenen exit code 2; import crash yok.
-- Onceki EPUB/TOC/chunker/pipeline/cache/XTTS/parallel scheduler/GPU parser testleri gecmeye devam ediyor.
+- CLI help/import smoke: PASS
+- Worker bootstrap smoke/regresyon testleri: PASS
+- LPT scheduler, worker subset, AutoTune secim ve `--xtts-workers auto` testleri: PASS
 
 ## Bu ortamda dogrulanamayanlar
 
-Container Windows + RTX 3090 icermedigi icin iki gercek XTTS model instance'inin ayni GPU'da throughput'u burada olculemedi. DeepSpeed VS2022 Windows wheel build'i de burada calistirilamadi. Bu nedenle 2/3/4 worker ve DeepSpeed'in gercek x-realtime sonucu kullanicinin Windows/RTX 3090 ortaminda benchmark edilmelidir.
+Bu container RTX 3090/Windows CUDA ortami icermedigi icin 1/2/3/4 worker gercek XTTS throughput olcumu burada yapilamadi. AutoTune algoritmasi ve scheduler fake-worker regresyon testleriyle dogrulandi; gercek x-realtime kazanci kullanicinin Windows/RTX 3090 sisteminde olculecek. 4.00x realtime bir hedef olup garanti degildir.
 
-Gercek sistemde beklenen kritik log:
+## Gercek sistemde beklenen kritik log
 
 ```text
-XTTS subprocess pool baslatiliyor: istenen worker=2.
-XTTS worker 1 hazir: PID=...; mod=optimized
-XTTS worker 2 hazir: PID=...; mod=optimized
-XTTS paralel havuz hazir: 2/2 worker aktif.
+XTTS paralel mod: AutoTune 1-4 bagimsiz subprocess worker; aygit=cuda; mod=optimized.
+XTTS AutoTune: 1 worker = ...x realtime
+XTTS AutoTune: 2 worker = ...x realtime
+XTTS AutoTune: 3 worker = ...x realtime
+XTTS AutoTune: 4 worker = ...x realtime
+XTTS AutoTune sonucu: ... -> secilen=N worker
+XTTS worker verimleri: PID ...: ...x/... parca | ...
 ```
-
-Bu satirlar gorulmeden coklu-worker performansi basarili sayilmaz.

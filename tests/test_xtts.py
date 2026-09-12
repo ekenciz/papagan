@@ -234,3 +234,41 @@ def test_xtts_parallel_seed_is_stable_and_task_specific():
     c = _stable_seed("task-b", "Merhaba dunya")
     assert a == b
     assert a != c
+
+
+def test_xtts_worker_guard_rechunks_oversized_task_without_pool_failure(monkeypatch, tmp_path):
+    import wave
+
+    from epub2m4b.core.models import AudioArtifact
+    from epub2m4b.tts import xtts_worker_process as worker
+
+    class FakeEngine:
+        def __init__(self):
+            self.calls = []
+
+        def synthesize(self, text, output_path, reference_wav=None):
+            assert len(text) <= XTTS_SAFE_MAX_CHARS
+            self.calls.append(text)
+            rate = 8000
+            frames = 80
+            with wave.open(str(output_path), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(rate)
+                wav.writeframes(b"\x00\x00" * frames)
+            return AudioArtifact(output_path, frames / rate, rate)
+
+    fake = FakeEngine()
+    monkeypatch.setattr(worker, "_ENGINE", fake)
+    monkeypatch.setattr(worker, "_REFERENCE_WAV", None)
+    monkeypatch.setattr(worker, "_WORKER_LOGS", [])
+
+    output = tmp_path / "guarded.wav"
+    artifact = worker._synthesize_guarded("a" * 246, output)
+
+    assert output.is_file()
+    assert len(fake.calls) == 2
+    assert all(len(text) <= XTTS_SAFE_MAX_CHARS for text in fake.calls)
+    assert artifact.sample_rate == 8000
+    assert artifact.duration_seconds == pytest.approx(0.02, abs=0.005)
+    assert any("savunmaci yeniden-bolme" in line for line in worker._WORKER_LOGS)

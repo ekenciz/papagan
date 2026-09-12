@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epub-to-m4b"
-version = "0.1.8"
+version = "0.1.10"
 description = "Yerel acik kaynak TTS motorlariyla EPUB dosyalarini bolumlu M4B sesli kitaplara donusturen masaustu uygulamasi."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"

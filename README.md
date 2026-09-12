@@ -6,7 +6,7 @@ Python tabanlı, grafik arayüzlü bir **EPUB -> Türkçe sesli kitap (M4B)** d�
 
 `EPUB -> spine/metadata/cover -> bölüm metinleri -> TTS chunk'ları -> WAV -> chapter zamanları -> AAC/M4B`
 
-## v0.1.8 ile gelenler
+## v0.1.10 ile gelenler
 
 - EPUB2/EPUB3 ZIP/OPF/spine okuma
 - EPUB3 `nav` ve EPUB2 NCX içindekiler (TOC) okuma
@@ -23,13 +23,14 @@ Python tabanlı, grafik arayüzlü bir **EPUB -> Türkçe sesli kitap (M4B)** d�
 - XTTS speaker listesini modelden dinamik yükleme; önerilen varsayılan: **Chandra MacFarland**
 - XTTS konuşma hızı: **0.70x-1.60x**
 - XTTS **Optimize** modu: low-level inference + speaker/clone conditioning cache + CUDA TF32
-- XTTS icin **1-4 bagimsiz subprocess worker**; 2 worker guvenli varsayilan, 3/4 worker 24 GB VRAM kartlarda deneysel
+- XTTS icin **AutoTune veya 1-4 bagimsiz subprocess worker**; AutoTune GPU/VRAM ve gercek inference olcumune gore en hizli worker sayisini secer
 - Opsiyonel **DeepSpeed** inference modu; Windows'ta VS2022 C++ Build Tools otomatik kurulum secenegi + Developer Command Prompt build akisi
-- GUI icinde **Hiz Testi**: secili worker/mode ayarinin gercek x-realtime performansini isinma sonrasinda olcer
+- GUI icinde **Hiz Testi**: AutoTune seciliyken 1-4 worker'i ayni yuklu modellerle karsilastirir; manuel secimde secili worker/mode ayarini olcer
 - Canli performans telemetrisi: GPU/VRAM/guc, realtime factor, uretilen ses ve ETA
 - VRAM telemetrisi **cihaz toplam kullanimi** ile worker PyTorch allocation degerlerini ayri gosterir; NVML yoksa `nvidia-smi` fallback kullanir
 - ETA ilk 10 uncached parca boyunca "isiniyor" durumunda tutulur; erken ve anlamsiz saatler/dakikalar tahmini gosterilmez
 - XTTS Türkçe için güvenli **220 karakter** chunk sınırı; upstream tokenizer sınırı olan 226 karakterin altında kalır
+- v0.1.10 parent + worker chunk-boundary koruması: limit-ustu tek gorev coklu-worker havuzunu artik tek-worker fallback'e dusurmez
 - GUI içinden yaklaşık 10 saniyelik XTTS ses önizleme ve tekrar oynatma
 - PySide6 grafik arayüz
 - Model/bağımlılık denetleme, **Kur/Onar** ve gerçek runtime import testi
@@ -38,6 +39,42 @@ Python tabanlı, grafik arayüzlü bir **EPUB -> Türkçe sesli kitap (M4B)** d�
 - FFmpeg ile AAC kodlama, M4B chapter metadata ve EPUB kapağı gömme
 - CLI ile EPUB analizi ve dönüştürme
 
+
+
+### v0.1.10 XTTS chunk-boundary guvenligi
+
+Gercek Windows coklu-worker testinde LPT scheduler en uzun iki gorevi ilk siraya aldiginda 232 ve 246 karakterlik iki metin worker seviyesindeki 220-karakter korumasina takilip tum pool'u tek-worker fallback'e dusurdu. v0.1.10 bu hata sinifini iki seviyede kapatir:
+
+1. Parent pipeline, `chunk_text()` cikisini worker job'u olusturmadan once yeniden dogrular ve oversized parcayi tekrar boler.
+2. Bir oversized metin buna ragmen subprocess IPC'ye ulasirsa worker gorevi reddetmez; yerel olarak `<=220` alt parcalara ayirir, her parcayi ayni yuklu modelle seslendirir ve ara WAV'lari tek sonuc WAV'inda birlestirir.
+
+Hazirlama logu artik gercek maksimum parcayi da gosterir. XTTS icin normal durumda sunu gormelisiniz:
+
+```text
+117 TTS parcasi hazirlandi (hedef: <= 220 karakter; gercek maks: 220).
+```
+
+Coklu-worker havuzu basladiktan sonra `232/246 karakter > 220` nedeniyle tek-worker fallback artik olmamalidir. Worker savunmasi devreye girmek zorunda kalirsa logda `XTTS worker savunmaci yeniden-bolme` mesaji gorunur; bu durum donusumu durdurmaz.
+
+### v0.1.9 AutoTune + GPU scheduler
+
+Worker sayisini elle tahmin etmek yerine **Otomatik (1-4 worker olc, en hizlisini sec)** modu kullanilabilir. AutoTune once cihaz-geneli VRAM'i kontrol eder, guvenli sayida XTTS subprocess yukler ve modelleri tekrar yuklemeden 1, 2, 3 ve 4 worker throughput'unu ayni test metinleriyle olcer. Hedef 4.00x realtime'dir; hedefe ulasan ilk daha-dusuk worker sayisi tercih edilir. Hedefe ulasilamazsa en hizli olculen ayar secilir.
+
+Ornek log:
+
+```text
+XTTS AutoTune: 1 worker = 0.96x realtime
+XTTS AutoTune: 2 worker = 1.82x realtime
+XTTS AutoTune: 3 worker = 2.41x realtime
+XTTS AutoTune: 4 worker = 2.36x realtime
+XTTS AutoTune sonucu: 1w=0.96x | 2w=1.82x | 3w=2.41x | 4w=2.36x -> secilen=3 worker
+```
+
+Gercek kitap chunk'lari artik **Longest Processing Time First** ile dispatch edilir. Uzun chunk'lar once worker'lara verilerek son kuyrukta tek uzun parcanin tum isi geciktirmesi azaltılır. WAV dosya adlari/sequence bilgisi nedeniyle final M4B sirasi yine EPUB sirasi olarak kalir. Multi-worker child process'lerde CPU thread havuzlari 1'e sinirlanir; bu, 3-4 worker calisirken CPU oversubscription'in GPU'yu aclikta birakmasini azaltir.
+
+GUI'de `Hiz Testi` AutoTune ile calistirilirsa kazanan worker sayisi otomatik secilir; boylece kitap donusumu benchmark'i tekrar etmek zorunda kalmaz. Benchmark calistirmadan dogrudan `M4B Olustur` denirse pipeline AutoTune'u kendi baslatir. CLI varsayilani da `--xtts-workers auto`'dur.
+
+4.00x bir hedef olarak kalir; tek RTX 3090'da elde edilecek deger XTTS autoregressive GPT katmani, WDDM/CUDA context contention, DeepSpeed durumu ve diger GPU yuklerine baglidir.
 
 
 ### v0.1.8 Windows worker bootstrap duzeltmesi
@@ -272,11 +309,13 @@ Yapılan işlemlerin kronolojik kaydı: [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md)
 6. v0.1.6 — XTTS 2-process worker, opsiyonel DeepSpeed, benchmark, duzeltilmis VRAM/ETA telemetrisi
 7. v0.1.7 — Windows-safe kalici XTTS subprocess havuzu, 1-4 worker, DeepSpeed Build Tools otomasyonu, `nvidia-smi` VRAM fallback
 8. v0.1.8 — Windows circular-import worker bootstrap fix, lazy package API, DeepSpeed 0.19.6 upstream build_win yolu
-7. v0.2 — Calibre üzerinden MOBI/AZW3 ingestion ve anchor-seviyesinde alt bölüm ayırma
-8. v0.3 — Türkçe metin normalizasyonu (sayı, tarih, kısaltma), telaffuz sözlüğü
-9. v0.4 — Engine subprocess/izole environment desteği, daha güçlü resume/checkpoint
-10. v0.5 — Bilingual segment routing ve çoklu karakter/ses profilleri
-11. v1.0 — Paketlenmiş Windows uygulaması, otomatik güncelleme ve regression kalite testleri
+9. v0.1.9 — VRAM-aware AutoTune 1-4 worker, LPT scheduler, host-thread contention azaltma, worker-bazli throughput
+10. v0.1.10 — parent + subprocess chunk-boundary guard; oversized gorev tum worker havuzunu artik dusurmez
+10. v0.2 — Calibre üzerinden MOBI/AZW3 ingestion ve anchor-seviyesinde alt bölüm ayırma
+11. v0.3 — Türkçe metin normalizasyonu (sayı, tarih, kısaltma), telaffuz sözlüğü
+12. v0.4 — Engine subprocess/izole environment desteği, daha güçlü resume/checkpoint
+13. v0.5 — Bilingual segment routing ve çoklu karakter/ses profilleri
+14. v1.0 — Paketlenmiş Windows uygulaması, otomatik güncelleme ve regression kalite testleri
 
 ### Windows: `WinError 1314` / Hugging Face symlink hatasi
 

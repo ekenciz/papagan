@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.10 - 2026-09-12
+
+- Windows/RTX 3090 gercek logunda ortaya cikan yeni coklu-worker hatasi duzeltildi: pipeline `<=220` hedefi raporlamasina ragmen 232/246 karakterlik bir gorev worker'a ulasip tum paralel havuzu tek-worker fallback'e dusurebiliyordu.
+- Parent pipeline'a ikinci bir **chunk boundary guard** eklendi. Her bolum `chunk_text()` sonrasinda yeniden dogrulanir; limit asan parca worker'a gonderilmeden yeniden bolunur.
+- Hazirlanan TTS parca logu artik yalniz hedefi degil gercek maksimumu da yazar: `hedef <=220; gercek maks: N`. Boylece parent/worker arasindaki limit uyusmazligi gozlemlenebilir.
+- XTTS subprocess worker'a son savunma katmani eklendi. Herhangi bir nedenle oversized gorev IPC'ye kadar ulasirsa worker gorevi hata ile dusurmek yerine kendi icinde `<=220` alt parcalara ayirir, alt sesleri tek WAV'da kayipsiz sirayla birlestirir ve ayni task sonucu olarak doner.
+- Bu savunma sayesinde tek bir hatali chunk artik `map_tasks()` havuzunu kapatip 2/3/4 worker donusumunu tamamen tek-worker moda dusurmez.
+- Oversized parent chunk onarimi, worker-local yeniden bolme ve WAV birlestirme icin regresyon testleri eklendi. Cekirdek test sonucu: **55/55 passed**.
+
+## 0.1.9 - 2026-09-12
+
+- XTTS worker secimine **Otomatik (1-4)** modu eklendi. Auto modunda workerlar sirali yuklenir ve her modelden sonra cihaz-geneli VRAM tekrar kontrol edilir; boylece WDDM/OOM riski azaltılır. GPU/VRAM on-kontrolu ile guvenli worker ust siniri belirleniyor; yuklu modeller tekrar yuklenmeden 1..N worker gercek inference benchmark'i yapiliyor ve en hizli konfigurasyon seciliyor.
+- AutoTune 4.00x realtime hedefine ulasan ilk worker sayisinda durabilir; hedefe ulasilamazsa olculen en hizli worker sayisini secer. Birbirine %3 yakin sonuclarda daha az VRAM/context kullanan dusuk worker sayisi tercih edilir.
+- Scheduler **Longest Processing Time First (LPT)** mantigina gecti: uzun chunk'lar once bos worker'lara verilir, ancak M4B sirasi dosya/sequence uzerinden orijinal kitap sirasi olarak korunur. Bu, son kuyrukta tek uzun chunk yuzunden worker'larin bos kalmasini azaltir.
+- 2/3/4 worker modunda host CPU thread patlamasini onlemek icin child process'lerde OMP/MKL/OpenBLAS/NumExpr ve PyTorch thread havuzlari 1 ile sinirlandi; CUDA besleme tutarliligi iyilestirildi.
+- Multi-worker PyTorch CUDA allocator icin `expandable_segments:True` etkinlestirildi.
+- Canli telemetriye worker bazli realtime verim araligi eklendi; donusum sonunda PID bazli worker throughput ozeti loglanir.
+- GUI worker varsayilani AutoTune oldu. GUI Hiz Testi AutoTune seciliyken tek model-yukleme turunda 1-4 worker'i karsilastirir ve kazanan worker sayisini otomatik olarak combo'da secer.
+- CLI `--xtts-workers auto|1|2|3|4` kabul eder; varsayilan `auto`.
+- AutoTune/priority scheduler/worker-limit/CLI regresyon testleri eklendi. Cekirdek test sonucu: **52/52 passed**.
+
 ## 0.1.8 - 2026-09-12
 
 - Windows'taki gercek v0.1.7 logunda ortaya cikan XTTS subprocess **circular import** hatasi duzeltildi. `python -m epub2m4b.tts.xtts_worker_process` artik `tts.__init__ -> registry -> core.__init__ -> pipeline -> tts.registry` dongusune girmiyor.

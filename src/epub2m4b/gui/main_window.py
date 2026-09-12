@@ -36,6 +36,7 @@ from epub2m4b.core.dependencies import (
 from epub2m4b.core.epub import EpubParseError, parse_epub
 from epub2m4b.core.models import ParsedBook, PipelineOptions, QUALITY_PRESETS, TocEntry
 from epub2m4b.tts.registry import ENGINE_CLASSES, engine_infos
+from epub2m4b.tts.xtts_subprocess_pool import AUTO_WORKERS
 from epub2m4b.tts.xtts import (
     DEFAULT_SPEAKER,
     PERFORMANCE_MODE_COMPATIBILITY,
@@ -222,18 +223,19 @@ class MainWindow(QMainWindow):
         self.xtts_workers_label = QLabel("XTTS worker:")
         worker_row = QHBoxLayout()
         self.xtts_workers_combo = QComboBox()
+        self.xtts_workers_combo.addItem("Otomatik (1-4 worker olc, en hizlisini sec)", AUTO_WORKERS)
         self.xtts_workers_combo.addItem("1 worker (daha az VRAM)", 1)
         self.xtts_workers_combo.addItem("2 worker (RTX 3090 icin guvenli baslangic)", 2)
         self.xtts_workers_combo.addItem("3 worker (24 GB VRAM - deneysel)", 3)
         self.xtts_workers_combo.addItem("4 worker (24 GB VRAM - 4x hedefi icin deneysel)", 4)
-        self.xtts_workers_combo.setCurrentIndex(1)
+        self.xtts_workers_combo.setCurrentIndex(0)
         worker_row.addWidget(self.xtts_workers_combo, 1)
         self.xtts_benchmark_btn = QPushButton("Hiz Testi")
         self.xtts_benchmark_btn.clicked.connect(self._benchmark_xtts)
         worker_row.addWidget(self.xtts_benchmark_btn)
         engine_form.addRow(self.xtts_workers_label, worker_row)
 
-        self.xtts_benchmark_result = QLabel("Hedef: 4.00x realtime. Hiz Testi ile secili ayari olcebilirsiniz.")
+        self.xtts_benchmark_result = QLabel("Hedef: 4.00x realtime. Otomatik mod 1-4 worker'i olcer ve en hizlisini secer.")
         self.xtts_benchmark_result.setWordWrap(True)
         self.xtts_benchmark_result.setStyleSheet("color: #666;")
         engine_form.addRow("XTTS benchmark:", self.xtts_benchmark_result)
@@ -530,14 +532,14 @@ class MainWindow(QMainWindow):
         if deep:
             if deepspeed_available():
                 self.xtts_benchmark_result.setText(
-                    "DeepSpeed hazir. 2 worker + DeepSpeed secimi RTX 3090 icin en agresif profil; Hiz Testi ile olcun."
+                    "DeepSpeed hazir. Otomatik worker modu 1-4 worker'i ayni yuklu modellerle olcer; Hiz Testi ile en hizlisini secin."
                 )
             else:
                 self.xtts_benchmark_result.setText(
                     "DeepSpeed henuz hazir degil. Kur/Onar ile deneyin; kurulamazsa uygulama Optimize moda geri doner."
                 )
         else:
-            self.xtts_benchmark_result.setText("Hedef: 4.00x realtime. Hiz Testi ile secili ayari olcebilirsiniz.")
+            self.xtts_benchmark_result.setText("Hedef: 4.00x realtime. Otomatik mod 1-4 worker'i ayni yuklu modellerle olcer ve en hizlisini secer.")
 
     def _install_deepspeed(self) -> None:
         if self.deepspeed_worker and self.deepspeed_worker.isRunning():
@@ -633,14 +635,29 @@ class MainWindow(QMainWindow):
         self.xtts_benchmark_btn.setEnabled(True)
         factor = float(result.get("realtime_factor") or 0.0)
         workers = int(result.get("workers") or 1)
-        requested = int(result.get("requested_workers") or workers)
+        requested_raw = result.get("requested_workers")
+        requested = int(requested_raw) if requested_raw is not None else workers
         mode = str(result.get("effective_performance_mode") or "?")
         vram = result.get("vram_workers_allocated_gb") or result.get("vram_allocated_gb")
         device_used = result.get("vram_device_used_gb")
         device_total = result.get("vram_device_total_gb") or result.get("vram_total_gb")
         target = "HEDEF GECILDI" if factor >= 4.0 else f"4.00x hedefinin %{min(999, round(factor / 4.0 * 100))}'i"
-        worker_text = f"{workers} worker" if workers == requested else f"{workers}/{requested} worker (fallback)"
+        if requested == AUTO_WORKERS:
+            worker_text = f"AutoTune -> {workers} worker"
+        else:
+            worker_text = f"{workers} worker" if workers == requested else f"{workers}/{requested} worker (fallback)"
         text = f"Benchmark: {factor:.2f}x realtime | {worker_text} | mod={mode} | {target}"
+        autotune_factors = result.get("autotune_factors") or {}
+        if autotune_factors:
+            table = " / ".join(
+                f"{key}w={float(value):.2f}x" for key, value in sorted(autotune_factors.items(), key=lambda item: int(item[0]))
+            )
+            text += " | " + table
+            # Benchmark already measured the chosen configuration; select it so
+            # a subsequent conversion does not repeat the AutoTune warmup.
+            chosen_index = self.xtts_workers_combo.findData(workers)
+            if chosen_index >= 0:
+                self.xtts_workers_combo.setCurrentIndex(chosen_index)
         if device_used is not None and device_total is not None:
             text += f" | cihaz VRAM {float(device_used):.1f}/{float(device_total):.1f} GB"
         if vram is not None:
@@ -958,8 +975,11 @@ class MainWindow(QMainWindow):
             parts.append("Uretim hizi: isiniyor")
         workers = payload.get("effective_workers") or payload.get("workers")
         requested_workers = payload.get("requested_workers")
+        worker_mode = str(payload.get("worker_mode") or "")
         if workers:
-            if requested_workers and int(requested_workers) != int(workers):
+            if worker_mode == "auto" or requested_workers == AUTO_WORKERS:
+                parts.append(f"Worker: Auto->{int(workers)}")
+            elif requested_workers and int(requested_workers) != int(workers):
                 parts.append(f"Worker: {int(workers)}/{int(requested_workers)} fallback")
             else:
                 parts.append(f"Worker: {int(workers)}")
@@ -969,6 +989,11 @@ class MainWindow(QMainWindow):
         worker_factor = float(payload.get("worker_realtime_factor") or 0.0)
         if worker_factor > 0 and int(workers or 1) > 1:
             parts.append(f"Tek-worker verimi: {worker_factor:.2f}x")
+        worker_factors = payload.get("worker_realtime_factors") or {}
+        if worker_factors and int(workers or 1) > 1:
+            values = [float(value) for value in worker_factors.values() if float(value) > 0]
+            if values:
+                parts.append(f"Worker araligi: {min(values):.2f}-{max(values):.2f}x")
         eta = payload.get("eta_seconds")
         if eta is not None:
             parts.append("Kalan: " + self._format_duration(float(eta)))
