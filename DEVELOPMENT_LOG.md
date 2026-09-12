@@ -299,3 +299,16 @@ Ayni koruma Hugging Face kullanan MMS motoruna da eklendi. Farkli OSError turler
 4. Worker prosesine son-emniyet re-chunk yolu eklendi. IPC'den oversized metin gelirse alt parcalar ayni model instance'inda sentezlenip tek WAV'a birlestirilir; task_error uretilmez.
 5. Parent onarimi ve worker-local onarim icin regresyon testleri eklendi.
 6. `pytest -q`: 55/55 PASS.
+
+## 2026-09-12 - v0.1.11 TOC-first content policy + source attribution
+
+1. Kullanici istegiyle bundan sonraki README surumlerinde yararlanilan upstream repo/model/teknik kaynak linklerinin tutulmasi kural haline getirildi; mevcut kaynaklar README tablosuna eklendi.
+2. `Chapter.toc_listed`, `TocEntry.source`, `TocEntry.default_selected` ve `ParsedBook.has_navigation_toc` metadata alanlari eklendi.
+3. EPUB3 nav / EPUB2 NCX ile gercek spine dokumani eslesen bolumler varsayilan seslendirme kumesi yapildi.
+4. Spine'da olup TOC'de olmayan okunabilir dokumanlar `TOC disindaki icerik` grubunda gorunur tutuldu fakat varsayilan isaretleri kapatildi.
+5. Manifest'te olup spine'da olmayan XHTML'in chapter listesine girmedigi regresyon testiyle sabitlendi.
+6. Navigasyon TOC'si hic yoksa veya hicbir spine dokumanina eslenemiyorsa tum parse edilen spine metnini secen geriye-uyumlu fallback korundu.
+7. GUI'ye `Kaynak / statu` sutunu ve `TOC Icerigini Sec` dugmesi eklendi.
+8. Pipeline explicit chapter secimi yokken `ParsedBook.default_selected_chapter_indices()` politikasini kullanacak sekilde degistirildi; CLI ve GUI ayni davranisa getirildi.
+9. Model lisansi varsayilani GUI/CLI/PipelineOptions/XTTS/MMS icin kabul edildi; CLI'da `--no-accept-model-license` opt-out eklendi. Referans ses `voice_consent` onayi otomatiklestirilmedi.
+10. Testler: `pytest -q` 59/59 PASS; `compileall` PASS.

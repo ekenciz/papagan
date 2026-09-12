@@ -114,7 +114,7 @@ class XTTSEngine(TTSEngine):
         gpu_recommended=True,
     )
 
-    def __init__(self, device: str = "auto", accept_model_license: bool = False, **options):
+    def __init__(self, device: str = "auto", accept_model_license: bool = True, **options):
         super().__init__(device, **options)
         self.accept_model_license = accept_model_license
         self.voice_mode = str(options.get("voice_mode", VOICE_MODE_BUILTIN)).strip().lower()

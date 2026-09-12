@@ -114,3 +114,57 @@ def test_parse_epub2_ncx_toc(tmp_path):
     book = parse_epub(path)
     assert book.toc[0].title == "Başlangıç"
     assert book.toc[0].chapter_index == 1
+
+
+def test_toc_listed_content_is_default_and_spine_only_content_is_off(tmp_path):
+    path = tmp_path / "toc-defaults.epub"
+    container = '''<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+      <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+    </container>'''
+    opf = '''<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>TOC Defaults</dc:title></metadata>
+      <manifest>
+        <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+        <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+        <item id="copyright" href="copyright.xhtml" media-type="application/xhtml+xml"/>
+        <item id="manifest-only" href="hidden.xhtml" media-type="application/xhtml+xml"/>
+      </manifest>
+      <spine><itemref idref="c1"/><itemref idref="copyright"/></spine>
+    </package>'''
+    nav = '''<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+      <body><nav epub:type="toc"><ol><li><a href="c1.xhtml">Ana Bölüm</a></li></ol></nav></body>
+    </html>'''
+    c1 = "<html><body><h1>Ana Bölüm</h1><p>TOC içinde bulunan ve varsayılan seçilecek yeterince uzun metin vardır.</p></body></html>"
+    copyright = "<html><body><h1>Telif</h1><p>Spine içinde ama TOC dışında kalan yeterince uzun telif metnidir.</p></body></html>"
+    hidden = "<html><body><h1>Gizli</h1><p>Manifestte olup spine dışında kalan ve hiç listelenmemesi gereken metindir.</p></body></html>"
+    with ZipFile(path, "w") as zf:
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("OEBPS/content.opf", opf)
+        zf.writestr("OEBPS/nav.xhtml", nav)
+        zf.writestr("OEBPS/c1.xhtml", c1)
+        zf.writestr("OEBPS/copyright.xhtml", copyright)
+        zf.writestr("OEBPS/hidden.xhtml", hidden)
+
+    book = parse_epub(path)
+    assert book.has_navigation_toc is True
+    assert [chapter.title for chapter in book.chapters] == ["Ana Bölüm", "Telif"]
+    assert [chapter.toc_listed for chapter in book.chapters] == [True, False]
+    assert book.default_selected_chapter_indices() == (1,)
+    assert book.toc[0].title == "Ana Bölüm"
+    assert book.toc[0].source == "toc"
+    assert book.toc[0].default_selected is True
+    assert book.toc[-1].title == "TOC disindaki icerik"
+    assert book.toc[-1].default_selected is False
+    assert book.toc[-1].children[0].chapter_index == 2
+    assert book.toc[-1].children[0].source == "spine"
+    assert book.toc[-1].children[0].default_selected is False
+
+
+def test_epub_without_usable_toc_keeps_spine_selected(tmp_path):
+    path = tmp_path / "no-toc-defaults.epub"
+    make_epub(path)
+    book = parse_epub(path)
+    assert book.has_navigation_toc is False
+    assert book.default_selected_chapter_indices() == (1, 2)
+    assert all(entry.source == "spine_no_toc" for entry in book.toc)
+    assert all(entry.default_selected for entry in book.toc)

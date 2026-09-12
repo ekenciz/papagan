@@ -6,11 +6,11 @@ Python tabanlı, grafik arayüzlü bir **EPUB -> Türkçe sesli kitap (M4B)** d�
 
 `EPUB -> spine/metadata/cover -> bölüm metinleri -> TTS chunk'ları -> WAV -> chapter zamanları -> AAC/M4B`
 
-## v0.1.10 ile gelenler
+## v0.1.11 ile gelenler
 
 - EPUB2/EPUB3 ZIP/OPF/spine okuma
 - EPUB3 `nav` ve EPUB2 NCX içindekiler (TOC) okuma
-- GUI'de TOC ağacı üzerinden seslendirilecek bölümleri seçme; varsayılan olarak tümü seçili
+- GUI'de TOC ağacı üzerinden seslendirilecek bölümleri seçme; **TOC'de görünen içerik varsayılan seçili**, spine'da olup TOC'de görünmeyen ek içerik varsayılan kapalı
 - Kitap adı, yazar, dil ve kapak çıkarma
 - Paragraf/cümle temelli Türkçe chunking
 - Plugin tabanlı TTS motorları
@@ -40,6 +40,22 @@ Python tabanlı, grafik arayüzlü bir **EPUB -> Türkçe sesli kitap (M4B)** d�
 - CLI ile EPUB analizi ve dönüştürme
 
 
+
+
+### v0.1.11 TOC-oncelikli varsayilan secim
+
+EPUB analizinde artik `manifest -> spine -> TOC` iliskisi ayri tutulur:
+
+- **TOC'de bulunan + spine'da bulunan XHTML/HTML**: ana sesli-kitap icerigi kabul edilir ve varsayilan olarak secilir.
+- **Spine'da bulunan fakat TOC'de gorunmeyen XHTML/HTML**: GUI'de `Spine / TOC disi` olarak listelenir fakat varsayilan olarak isaretlenmez. Kullanici isterse elle acabilir.
+- **Manifest'te olup spine'da olmayan kaynaklar**: normal okuma akisi olmadiklari icin seslendirme listesine alinmaz. CSS, font, resim vb. kaynaklar zaten metin bolumu degildir.
+- EPUB'da kullanilabilir bir EPUB3 `nav` / EPUB2 NCX TOC yoksa uygulama kitabi bos birakmamak icin eski davranisa doner ve parse edilen spine metinlerinin tumunu varsayilan secer.
+
+GUI'ye **Kaynak / statu** sutunu ve **TOC Icerigini Sec** dugmesi eklendi. `Tumunu Sec` ile TOC disi spine metinleri de elle dahil edilebilir. CLI'da `--chapters` verilmezse kullanilabilir TOC bulunan kitaplarda ayni TOC-oncelikli varsayilan uygulanir. `epub2m4b-cli analyze` her bolumu `[TOC; secili]`, `[Spine/TOC disi; atlanir]` veya `[Spine (TOC yok); secili]` olarak raporlar.
+
+### Lisans varsayilani
+
+Model lisansi onay kutulari artik **varsayilan olarak isaretli** gelir ve `PipelineOptions.accept_model_license` / CLI varsayilani `True`'dur. CLI'da gerekirse `--no-accept-model-license` ile kapatilabilir. Bu degisiklik yalnız model lisansi onayinin varsayilanini etkiler; **referans ses kullanma/klonlama yetkisi** kullaniciya ozel bir beyan oldugu icin otomatik kabul edilmez.
 
 ### v0.1.10 XTTS chunk-boundary guvenligi
 
@@ -112,6 +128,28 @@ GUI'deki **Hiz Testi** model yukleme ve ilk isinma parcalarini olcum disinda bir
 
 Sorunlu bir Coqui surumu/ortami icin **Uyumluluk / klasik TTS.api** modu korunur. Bu mod kalite karsilastirmasi ve geriye donuk hata ayiklama icindir.
 
+## Yararlanılan kaynaklar / upstream projeler
+
+Bu proje model ağırlıklarını veya aşağıdaki projelerin kod tabanlarını yeniden dağıtmayı amaçlamaz; entegrasyon, API davranışı, Windows kurulumu ve performans tasarımı için aşağıdaki açık kaynak / açık model kaynaklarından yararlanır. Her bileşenin kendi lisans koşulları geçerlidir; ayrıntılar için [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) dosyasına bakın.
+
+| Kaynak | Bu projedeki kullanım | Bağlantı |
+|---|---|---|
+| Trendyol-TTS | Türkçe VoxCPM2 TTS motoru | https://huggingface.co/Trendyol/Trendyol-TTS |
+| OpenBMB VoxCPM / VoxCPM2 | Trendyol-TTS temel çalışma zamanı ve API referansı | https://github.com/OpenBMB/VoxCPM |
+| Coqui AI TTS (Idiap) | XTTS v2 runtime / low-level inference API | https://github.com/idiap/coqui-ai-TTS |
+| XTTS-v2 model kartı | XTTS model bilgisi ve model lisansı | https://huggingface.co/coqui/XTTS-v2 |
+| coqui-xtts-v2-turkish-local | Hazır speaker keşfi, Türkçe yerel XTTS kullanım akışı ve hız kontrolü için referans | https://github.com/muhammedsaban/coqui-xtts-v2-turkish-local |
+| Facebook MMS Turkish | Hafif Türkçe TTS motoru | https://huggingface.co/facebook/mms-tts-tur |
+| DeepSpeed | Opsiyonel XTTS inference hızlandırma denemeleri | https://github.com/deepspeedai/DeepSpeed |
+| PyTorch | CUDA/TTS inference çalışma zamanı | https://github.com/pytorch/pytorch |
+| Hugging Face Hub | Model indirme/cache ve Windows cache uyumluluğu | https://github.com/huggingface/huggingface_hub |
+| Hugging Face Transformers | MMS runtime ve model altyapısı | https://github.com/huggingface/transformers |
+| FFmpeg | WAV birleştirme, AAC/M4B mux, chapter/cover gömme | https://github.com/FFmpeg/FFmpeg |
+| Qt for Python / PySide6 | Masaüstü GUI | https://doc.qt.io/qtforpython-6/ |
+| Beautiful Soup | EPUB XHTML metin çıkarımı | https://www.crummy.com/software/BeautifulSoup/ |
+
+Bu liste bundan sonraki sürümlerde yeni bir upstream proje, model, örnek repo veya teknik kaynak kullanıldıkça README ile birlikte güncellenecektir.
+
 ## Lisanslar ve kullanım sınırları
 
 Uygulama kodu MIT lisanslıdır. Model ağırlıkları repoya dahil edilmez; ilk kullanımda ilgili sağlayıcıdan indirilir.
@@ -122,7 +160,7 @@ Uygulama kodu MIT lisanslıdır. Model ağırlıkları repoya dahil edilmez; ilk
 | Coqui XTTS v2 | Coqui Public Model License (CPML) | **Hayır** |
 | Facebook MMS Turkish | CC-BY-NC-4.0 | **Hayır** |
 
-XTTS ve MMS seçildiğinde GUI açık lisans onayı ister. XTTS yalnızca "Referans sesten klonlama" modu seçildiğinde referans ses dosyası ve ses kullanım/klonlama izni ister. "Hazır XTTS sesi" modunda referans WAV gerekmez.
+XTTS ve MMS için model lisansı onay kutusu GUI'de varsayılan olarak işaretlidir; kullanıcı isterse kaldırabilir. CLI da model lisansını varsayılan kabul eder ve `--no-accept-model-license` ile kapatılabilir. XTTS yalnızca "Referans sesten klonlama" modu seçildiğinde referans ses dosyası ve **ayrı, açık ses kullanım/klonlama izni** ister. "Hazır XTTS sesi" modunda referans WAV gerekmez.
 
 Ayrıntılar: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
@@ -177,9 +215,13 @@ PyTorch CUDA/CPU varyantı donanıma göre ayrıca seçilmelidir. `coqui-tts` 0.
 
 ### GUI'de bölüm/TOC seçimi
 
-EPUB seçilip analiz edildiğinde **İçindekiler / Seslendirilecek Bölümler** ağacı otomatik doldurulur. İlk durumda bütün bölümler işaretlidir. Seslendirilmesini istemediğiniz önsöz, teşekkür, kaynakça, dizin veya başka bir bölümün işaretini kaldırmanız yeterlidir. Yalnız işaretli EPUB spine bölümleri TTS pipeline'ına gönderilir ve M4B chapter listesine eklenir.
+EPUB seçilip analiz edildiğinde **İçindekiler / Seslendirilecek Bölümler** ağacı otomatik doldurulur. v0.1.11'den itibaren varsayılan seçim gerçek EPUB navigasyonunu izler: TOC'de temsil edilen spine belgeleri işaretli, yalnız spine'da bulunan fakat TOC'de görünmeyen okunabilir belgeler işaretsiz gelir.
 
-EPUB3 `nav.xhtml` ve EPUB2 NCX hiyerarşisi korunur. Bazı EPUB'larda birden fazla TOC alt başlığı aynı XHTML dosyasındaki farklı anchor'lara işaret eder; v0.1.3 seslendirme birimini spine/XHTML dosyası olarak tuttuğu için bu tür alias başlıklar birlikte seçilip kaldırılır.
+Ağaçta üç sütun vardır: **İçerik**, **Karakter**, **Kaynak / statü**. `Kaynak / statü` alanında `TOC`, `Spine / TOC dışı` veya TOC bulunamayan EPUB'lar için `Spine (TOC yok)` görünür. Hızlı seçim düğmeleri: **TOC İçeriğini Seç**, **Tümünü Seç**, **Tümünü Kaldır**.
+
+EPUB3 `nav.xhtml` ve EPUB2 NCX hiyerarşisi korunur. Bazı EPUB'larda birden fazla TOC alt başlığı aynı XHTML dosyasındaki farklı anchor'lara işaret eder; v0.1.x seslendirme birimini spine/XHTML dosyası olarak tuttuğu için bu tür alias başlıklar birlikte seçilip kaldırılır.
+
+Manifest'te bulunup spine'a hiç eklenmemiş XHTML yardımcı belgeleri ve CSS/font/resim gibi kaynaklar seslendirme listesine sokulmaz. Kullanılabilir navigasyon TOC'si hiç yoksa uygulama tüm okunabilir spine metnini varsayılan seçerek geriye uyumlu davranır.
 
 ## Çalıştırma
 
@@ -210,8 +252,7 @@ epub2m4b-cli convert kitap.epub kitap.m4b \
   --xtts-speaker "Chandra MacFarland" \
   --xtts-speed 1.0 \
   --xtts-performance-mode optimized \
-  --xtts-workers 2 \
-  --accept-model-license
+  --xtts-workers 2
 ```
 
 XTTS 2 worker + DeepSpeed denemesi:
@@ -223,8 +264,7 @@ epub2m4b-cli convert kitap.epub kitap.m4b \
   --xtts-voice-mode builtin \
   --xtts-speaker "Chandra MacFarland" \
   --xtts-performance-mode deepspeed \
-  --xtts-workers 2 \
-  --accept-model-license
+  --xtts-workers 2
 ```
 
 XTTS referans sesten klonlama ile dönüştürme:
@@ -236,7 +276,6 @@ epub2m4b-cli convert kitap.epub kitap.m4b \
   --xtts-speed 1.0 \
   --xtts-performance-mode optimized \
   --reference-wav sesim.wav \
-  --accept-model-license \
   --voice-consent
 ```
 

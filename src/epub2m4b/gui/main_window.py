@@ -123,20 +123,23 @@ class MainWindow(QMainWindow):
         toc_box = QGroupBox("2. İçindekiler / Seslendirilecek Bölümler")
         toc_layout = QVBoxLayout(toc_box)
         toc_hint = QLabel(
-            "EPUB içindekiler yapısı aşağıda gösterilir. Varsayılan olarak tüm içerik seçilidir; "
-            "seslendirilmesini istemediğiniz bölümün işaretini kaldırın."
+            "EPUB içindekiler yapısı aşağıda gösterilir. TOC'de bulunan okunabilir içerik varsayılan "
+            "olarak seçilir; spine'da bulunup TOC'de görünmeyen ek içerik listelenir ama seçilmez."
         )
         toc_hint.setWordWrap(True)
         toc_hint.setStyleSheet("color: #666;")
         toc_layout.addWidget(toc_hint)
         self.toc_tree = QTreeWidget()
-        self.toc_tree.setHeaderLabels(["İçerik", "Karakter"])
+        self.toc_tree.setHeaderLabels(["İçerik", "Karakter", "Kaynak / statü"])
         self.toc_tree.setRootIsDecorated(True)
         self.toc_tree.setAlternatingRowColors(True)
         self.toc_tree.setMinimumHeight(170)
         self.toc_tree.itemChanged.connect(self._toc_item_changed)
         toc_layout.addWidget(self.toc_tree)
         toc_actions = QHBoxLayout()
+        self.toc_select_toc_btn = QPushButton("TOC İçeriğini Seç")
+        self.toc_select_toc_btn.clicked.connect(self._select_toc_content)
+        toc_actions.addWidget(self.toc_select_toc_btn)
         self.toc_select_all_btn = QPushButton("Tümünü Seç")
         self.toc_select_all_btn.clicked.connect(lambda: self._set_all_toc(Qt.CheckState.Checked))
         toc_actions.addWidget(self.toc_select_all_btn)
@@ -362,22 +365,42 @@ class MainWindow(QMainWindow):
         self._toc_syncing = True
         self.toc_tree.clear()
 
+        source_labels = {
+            "toc": "TOC",
+            "spine": "Spine / TOC dışı",
+            "spine_no_toc": "Spine (TOC yok)",
+        }
+
         def add_entry(parent: QTreeWidget | QTreeWidgetItem, entry: TocEntry) -> None:
             is_group = bool(entry.children)
             chars = chapter_chars.get(entry.chapter_index or -1) if not is_group else None
-            item = QTreeWidgetItem(parent, [entry.title, f"{chars:,}" if chars is not None else ""])
+            source_label = source_labels.get(entry.source, entry.source or "-")
+            item = QTreeWidgetItem(
+                parent,
+                [entry.title, f"{chars:,}" if chars is not None else "", source_label],
+            )
             item.setData(0, Qt.ItemDataRole.UserRole, entry.chapter_index if not is_group else None)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(0, Qt.CheckState.Checked)
+            item.setCheckState(
+                0,
+                Qt.CheckState.Checked if entry.default_selected else Qt.CheckState.Unchecked,
+            )
             if is_group and entry.chapter_index is not None:
                 direct_chars = chapter_chars.get(entry.chapter_index)
                 direct_item = QTreeWidgetItem(
                     item,
-                    ["Bölüm başlangıcı / ana metin", f"{direct_chars:,}" if direct_chars is not None else ""],
+                    [
+                        "Bölüm başlangıcı / ana metin",
+                        f"{direct_chars:,}" if direct_chars is not None else "",
+                        source_label,
+                    ],
                 )
                 direct_item.setData(0, Qt.ItemDataRole.UserRole, entry.chapter_index)
                 direct_item.setFlags(direct_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                direct_item.setCheckState(0, Qt.CheckState.Checked)
+                direct_item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked if entry.default_selected else Qt.CheckState.Unchecked,
+                )
             for child in entry.children:
                 add_entry(item, child)
 
@@ -386,6 +409,7 @@ class MainWindow(QMainWindow):
         self._toc_syncing = False
         self.toc_tree.expandAll()
         self.toc_tree.resizeColumnToContents(1)
+        self.toc_tree.resizeColumnToContents(2)
         self.toc_box.setEnabled(True)
         self._update_toc_selection_summary()
 
@@ -457,6 +481,27 @@ class MainWindow(QMainWindow):
         self._toc_syncing = False
         self._update_toc_selection_summary()
 
+
+    def _select_toc_content(self) -> None:
+        """Restore the safe default: TOC content on, spine-only extras off."""
+        if not self.current_book:
+            return
+        selected = set(self.current_book.default_selected_chapter_indices())
+        self._toc_syncing = True
+        for item in self._iter_tree_items(self.toc_tree):
+            chapter_index = item.data(0, Qt.ItemDataRole.UserRole)
+            if chapter_index is not None:
+                item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked if int(chapter_index) in selected else Qt.CheckState.Unchecked,
+                )
+        # Recompute group/parent states bottom-up.
+        items = list(self._iter_tree_items(self.toc_tree))
+        for item in reversed(items):
+            self._update_parent_states(item)
+        self._toc_syncing = False
+        self._update_toc_selection_summary()
+
     def _selected_chapter_indices(self) -> tuple[int, ...]:
         selected: set[int] = set()
         for item in self._iter_tree_items(self.toc_tree):
@@ -481,7 +526,7 @@ class MainWindow(QMainWindow):
         use_text = "ticari kullanım mümkün" if info.commercial_use else "yalnız ticari olmayan kullanım"
         self.license_label.setText(f'<a href="{info.license_url}">{info.license_name}</a> — {use_text}')
         self.license_ack.setVisible(info.requires_license_ack)
-        self.license_ack.setChecked(False)
+        self.license_ack.setChecked(info.requires_license_ack)
         self.license_ack.setText(f"{info.license_name} koşullarını okudum ve kabul ediyorum.")
         xtts_visible = self.engine_id == "xtts"
         self.xtts_mode_label.setVisible(xtts_visible)

@@ -1,4 +1,24 @@
-# Final QA - 2026-09-12 - v0.1.10
+# Final QA - 2026-09-12 - v0.1.11
+
+## v0.1.11 TOC/source regressionlari
+
+- EPUB3 nav ile spine dokumani eslesmesi: PASS
+- TOC'de temsil edilen chapter `toc_listed=True` ve varsayilan secili: PASS
+- Spine'da olup TOC'de olmayan chapter gorunur + varsayilan kapali: PASS
+- Manifest-only XHTML chapter listesine alinmiyor: PASS
+- TOC bulunmayan EPUB'da tum spine metni geriye uyumlu secili: PASS
+- Pipeline explicit secim yokken TOC-oncelikli varsayilani kullaniyor: PASS
+- CLI model lisansi varsayilani `True`, `--no-accept-model-license` opt-out: PASS
+- README upstream kaynak/repo link tablosu: eklendi
+- Voice-clone yetki onayi: explicit kaldi
+
+## v0.1.11 test sonucu
+
+```text
+python -m compileall -q src tests  PASS
+pytest -q                           59 passed
+```
+
 
 ## v0.1.10 ek regresyonlar
 

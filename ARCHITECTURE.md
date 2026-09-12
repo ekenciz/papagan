@@ -199,3 +199,11 @@ Multi-process XTTS worker'lar CUDA'ya odaklanabilsin diye child environment'ta O
 ## v0.1.10 chunk-boundary fault containment
 
 XTTS icin 220 karakter limiti artik iki proses sinirinda da invariant kabul edilir. Parent pipeline `chunk_text()` sonrasinda `enforce_chunk_limit()` uygular. Subprocess worker ise IPC uzerinden limit-ustu bir task alirsa task_error vermek yerine lokal re-chunk + WAV concatenate ile ayni task'i tamamlar. Bu ikinci katman normal akis degil, fault-containment mekanizmasidir; amaci tek bozuk gorevin tum multi-worker pool'u kapatip pahali tek-worker fallback'e gecmesini engellemektir.
+
+## v0.1.11 TOC-first narration policy
+
+EPUB parser artik okunabilir belgelerin kaynagini uc seviyede ayirir. Manifest yalniz kaynak envanteridir; seslendirme adayi olmak icin belge spine'da yer almalidir. Kullanilabilir EPUB3 `nav` veya EPUB2 NCX navigasyonunda temsil edilen spine belgeleri `Chapter.toc_listed=True` olur ve varsayilan seslendirme kumesini olusturur. Spine'da olup navigasyonda bulunmayan XHTML/HTML belgeleri ParsedBook icinde korunur ve GUI'de gorunur, ancak `TocEntry(source="spine", default_selected=False)` olarak eklenir.
+
+`ParsedBook.default_selected_chapter_indices()` tek varsayilan-politika kaynagidir. GUI `TOC Icerigini Sec` dugmesi ve pipeline'in `selected_chapter_indices=None` yolu ayni metodu kullanir. Kullanilabilir TOC bulunamazsa metod tum parse edilen spine chapter'larini dondurur; bu, bozuk/minimal EPUB'larda bos sesli kitap uretilmesini onler. Kullanici explicit chapter secimi gonderdiginde bu secim varsayilani her zaman override eder.
+
+Model lisanslari v0.1.11'den itibaren varsayilan kabul edilir; bu bir UI/varsayilan konfigurasyon karari olup voice cloning icin gerekli `voice_consent` ile birlestirilmez. Referans sese dair yetki beyanı explicit kalir.

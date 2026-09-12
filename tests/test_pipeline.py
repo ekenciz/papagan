@@ -404,3 +404,42 @@ def test_pipeline_defensively_repairs_oversized_chunker_output(monkeypatch, tmp_
     assert engine.texts
     assert all(len(text) <= FakeEngine.info.recommended_max_chars for text in engine.texts)
     assert "".join(engine.texts) == "x" * 150
+
+
+def test_pipeline_defaults_to_toc_listed_chapters_when_navigation_exists(monkeypatch, tmp_path):
+    epub = tmp_path / "toc-default.epub"
+    output = tmp_path / "toc-default.m4b"
+    container = '''<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+    <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'''
+    opf = '''<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+    <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>TOC Default</dc:title></metadata>
+    <manifest>
+      <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+      <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+      <item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>
+    </manifest>
+    <spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>'''
+    nav = '''<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
+    <nav epub:type="toc"><ol><li><a href="c1.xhtml">Ana</a></li></ol></nav></body></html>'''
+    c1 = "<html><body><h1>Ana</h1><p>TOC içindeki bölüm varsayılan olarak seslendirilmelidir ve yeterince uzundur.</p></body></html>"
+    c2 = "<html><body><h1>Ek</h1><p>TOC dışında kalan spine bölümü varsayılan olarak atlanmalıdır ve yeterince uzundur.</p></body></html>"
+    with ZipFile(epub, "w") as zf:
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("OEBPS/content.opf", opf)
+        zf.writestr("OEBPS/nav.xhtml", nav)
+        zf.writestr("OEBPS/c1.xhtml", c1)
+        zf.writestr("OEBPS/c2.xhtml", c2)
+
+    engine = FakeEngine()
+    monkeypatch.setattr("epub2m4b.core.pipeline.create_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("epub2m4b.core.pipeline.user_cache_dir", lambda _name: str(tmp_path / "cache"))
+    monkeypatch.setattr("epub2m4b.core.pipeline.require_ffmpeg", lambda: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "epub2m4b.core.pipeline.assemble_m4b",
+        lambda **kwargs: kwargs["output_path"].write_bytes(b"m4b"),
+    )
+
+    ConversionPipeline().run(PipelineOptions(epub, output, "fake"))
+    spoken = " ".join(engine.texts)
+    assert "TOC içindeki bölüm" in spoken
+    assert "TOC dışında kalan" not in spoken

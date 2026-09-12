@@ -94,7 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="auto|1|2|3|4",
         help="CUDA'da XTTS worker sayisi; auto 1-4 worker'i olcer ve en hizlisini secer (varsayilan: auto)",
     )
-    convert.add_argument("--accept-model-license", action="store_true")
+    convert.add_argument(
+        "--accept-model-license",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Model lisansini kabul et (varsayilan: kabul; --no-accept-model-license ile kapatilabilir)",
+    )
     convert.add_argument("--voice-consent", action="store_true")
     convert.add_argument("--keep-work-files", action="store_true")
     convert.add_argument(
@@ -113,8 +118,19 @@ def main() -> int:
         print(f"Yazar: {book.metadata.author}")
         print(f"Dil: {book.metadata.language}")
         print(f"Bolum sayisi: {len(book.chapters)}")
+        default_selected = set(book.default_selected_chapter_indices())
         for chapter in book.chapters:
-            print(f"{chapter.index:03d}. {chapter.title} ({len(chapter.text)} karakter)")
+            if chapter.toc_listed:
+                source = "TOC"
+            elif book.has_navigation_toc:
+                source = "Spine/TOC disi"
+            else:
+                source = "Spine (TOC yok)"
+            default = "secili" if chapter.index in default_selected else "atlanir"
+            print(
+                f"{chapter.index:03d}. {chapter.title} ({len(chapter.text)} karakter) "
+                f"[{source}; {default}]"
+            )
         return 0
 
     pipeline = ConversionPipeline(

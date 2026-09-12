@@ -584,6 +584,14 @@ class ConversionPipeline:
             selected = set(options.selected_chapter_indices)
             chapters = [chapter for chapter in book.chapters if chapter.index in selected]
             self.log(f"TOC secimi: {len(chapters)}/{len(book.chapters)} bolum seslendirilecek.")
+        elif book.has_navigation_toc:
+            selected = set(book.default_selected_chapter_indices())
+            chapters = [chapter for chapter in book.chapters if chapter.index in selected]
+            skipped = len(book.chapters) - len(chapters)
+            self.log(
+                f"TOC varsayilani: {len(chapters)}/{len(book.chapters)} bolum seslendirilecek; "
+                f"TOC disindaki {skipped} spine bolumu atlandi."
+            )
         if not chapters:
             raise RuntimeError("Seslendirilecek bolum secilmedi.")
 

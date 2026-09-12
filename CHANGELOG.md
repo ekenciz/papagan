@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.11 - 2026-09-12
+
+- EPUB navigasyon politikasi degisti: kullanilabilir EPUB3 nav/EPUB2 NCX varsa yalniz TOC'de temsil edilen spine metinleri varsayilan secilir.
+- Spine'da olup TOC'de gorunmeyen okunabilir belgeler GUI'de `Spine / TOC disi` olarak listelenir ve varsayilan kapali gelir; `Tumunu Sec` ile dahil edilebilir.
+- Manifest'te olup spine'da olmayan yardimci XHTML kaynaklari seslendirme listesine alinmaz (mevcut parser davranisi artik test ve dokumantasyonla garanti altinda).
+- TOC bulunmayan/minimal EPUB'larda tum parse edilen spine metni secili kalir; kitap bos varsayilanla acilmaz.
+- GUI'ye `Kaynak / statu` sutunu ve `TOC Icerigini Sec` dugmesi eklendi.
+- CLI `analyze` bolumlerin TOC/spine statulerini ve varsayilan secim durumunu gosterir.
+- Model lisansi onayi GUI, CLI, PipelineOptions, XTTS ve MMS icin varsayilan kabul edildi; CLI'ya `--no-accept-model-license` opt-out eklendi. Voice-clone izin beyaninin explicit olmasi korunur.
+- README'ye yararlanilan upstream repo/model/teknik kaynak baglantilarini iceren kalici tablo eklendi.
+- Regresyon paketi 59 teste cikarildi.
+
 ## 0.1.10 - 2026-09-12
 
 - Windows/RTX 3090 gercek logunda ortaya cikan yeni coklu-worker hatasi duzeltildi: pipeline `<=220` hedefi raporlamasina ragmen 232/246 karakterlik bir gorev worker'a ulasip tum paralel havuzu tek-worker fallback'e dusurebiliyordu.

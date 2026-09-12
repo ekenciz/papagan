@@ -249,32 +249,65 @@ def _extract_ncx_toc(zf: zipfile.ZipFile, opf_path: str, opf_root: ET.Element, m
     return entries
 
 
-def _map_toc_to_chapters(entries: list[TocEntry], chapters: list[Chapter]) -> list[TocEntry]:
-    chapter_by_href = {posixpath.normpath(chapter.source_href): chapter.index for chapter in chapters}
+def _map_toc_to_chapters(
+    entries: list[TocEntry],
+    chapters: list[Chapter],
+    *,
+    has_navigation_toc: bool,
+) -> tuple[list[TocEntry], bool]:
+    chapter_by_href = {posixpath.normpath(chapter.source_href): chapter for chapter in chapters}
     represented: set[int] = set()
 
     def visit(entry: TocEntry) -> None:
+        entry.source = "toc"
+        entry.default_selected = True
         if entry.href:
-            entry.chapter_index = chapter_by_href.get(posixpath.normpath(_without_fragment(entry.href)))
-            if entry.chapter_index is not None:
-                represented.add(entry.chapter_index)
+            chapter = chapter_by_href.get(posixpath.normpath(_without_fragment(entry.href)))
+            entry.chapter_index = chapter.index if chapter is not None else None
+            if chapter is not None:
+                chapter.toc_listed = True
+                represented.add(chapter.index)
         for child in entry.children:
             visit(child)
 
     for entry in entries:
         visit(entry)
 
+    usable_navigation_toc = has_navigation_toc and bool(represented)
+    if has_navigation_toc and not usable_navigation_toc:
+        # A malformed nav/NCX that maps to no parsed spine document should not
+        # leave the book with an empty default selection. Treat it as no usable TOC.
+        entries = []
+
     missing = [chapter for chapter in chapters if chapter.index not in represented]
     if missing:
+        # If a usable EPUB navigation TOC exists, spine-only documents stay visible
+        # to the user but are intentionally off by default. If the EPUB has no
+        # usable TOC at all, keep the legacy all-spine fallback selected.
+        source = "spine" if usable_navigation_toc else "spine_no_toc"
+        default_selected = not usable_navigation_toc
         fallback = [
-            TocEntry(title=chapter.title, href=chapter.source_href, chapter_index=chapter.index)
+            TocEntry(
+                title=chapter.title,
+                href=chapter.source_href,
+                chapter_index=chapter.index,
+                source=source,
+                default_selected=default_selected,
+            )
             for chapter in missing
         ]
-        if entries:
-            entries.append(TocEntry(title="TOC disindaki icerik", children=fallback))
+        if usable_navigation_toc:
+            entries.append(
+                TocEntry(
+                    title="TOC disindaki icerik",
+                    children=fallback,
+                    source="spine",
+                    default_selected=False,
+                )
+            )
         else:
             entries.extend(fallback)
-    return entries
+    return entries, usable_navigation_toc
 
 
 def parse_epub(path: str | Path) -> ParsedBook:
@@ -352,7 +385,12 @@ def parse_epub(path: str | Path) -> ParsedBook:
         toc = _extract_epub3_toc(zf, opf_path, manifest)
         if not toc:
             toc = _extract_ncx_toc(zf, opf_path, opf_root, manifest)
-        toc = _map_toc_to_chapters(toc, chapters)
+        navigation_toc_found = bool(toc)
+        toc, has_navigation_toc = _map_toc_to_chapters(
+            toc,
+            chapters,
+            has_navigation_toc=navigation_toc_found,
+        )
         metadata = BookMetadata(
             title=title,
             author=author,
@@ -360,4 +398,9 @@ def parse_epub(path: str | Path) -> ParsedBook:
             cover_bytes=cover_bytes,
             cover_suffix=cover_suffix,
         )
-        return ParsedBook(metadata=metadata, chapters=chapters, toc=toc)
+        return ParsedBook(
+            metadata=metadata,
+            chapters=chapters,
+            toc=toc,
+            has_navigation_toc=has_navigation_toc,
+        )

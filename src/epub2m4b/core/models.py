@@ -20,6 +20,7 @@ class Chapter:
     title: str
     text: str
     source_href: str = ""
+    toc_listed: bool = False
 
 
 @dataclass(slots=True)
@@ -28,6 +29,8 @@ class TocEntry:
     href: str = ""
     chapter_index: int | None = None
     children: list["TocEntry"] = field(default_factory=list)
+    source: str = "toc"
+    default_selected: bool = True
 
 
 @dataclass(slots=True)
@@ -35,6 +38,19 @@ class ParsedBook:
     metadata: BookMetadata
     chapters: list[Chapter]
     toc: list[TocEntry] = field(default_factory=list)
+    has_navigation_toc: bool = False
+
+    def default_selected_chapter_indices(self) -> tuple[int, ...]:
+        """Return the safe default narration set.
+
+        When the EPUB has an explicit EPUB3 nav/EPUB2 NCX table of contents,
+        only spine documents represented by that navigation are selected by
+        default.  If the book has no usable navigation TOC at all, all parsed
+        spine chapters stay selected so malformed/minimal EPUBs remain usable.
+        """
+        if self.has_navigation_toc:
+            return tuple(chapter.index for chapter in self.chapters if chapter.toc_listed)
+        return tuple(chapter.index for chapter in self.chapters)
 
 
 @dataclass(slots=True)
@@ -74,7 +90,7 @@ class PipelineOptions:
     quality_key: str = "standard"
     device: str = "auto"
     reference_wav: Path | None = None
-    accept_model_license: bool = False
+    accept_model_license: bool = True
     voice_consent: bool = False
     keep_work_files: bool = False
     engine_options: dict[str, Any] = field(default_factory=dict)

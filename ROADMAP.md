@@ -1,6 +1,14 @@
 # Roadmap
 
-## v0.1.10 - mevcut iskelet
+## v0.1.11 - mevcut iskelet
+
+### v0.1.11 tamamlandi
+
+- TOC-oncelikli varsayilan seslendirme secimi; spine/TOC-disi okunabilir icerik gorunur ama varsayilan kapali.
+- `Kaynak / statu` sutunu ve `TOC Icerigini Sec` hizli secimi.
+- Model lisanslarinda varsayilan kabul; voice-clone izin beyaninda explicit onay korunur.
+- README upstream kaynak/repo/model baglanti tablosu.
+
 
 - Oversized task fault-containment: parent + worker seviyesinde <=220 karakter garantisi
 
