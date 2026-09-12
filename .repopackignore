@@ -1,0 +1,117 @@
+# ==============================
+# Hassas Bilgiler & Kimlik Doğrulama
+# ==============================
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.p12
+id_rsa
+id_ed25519
+credentials.json
+secrets.*
+keys.ini
+api_keys.txt
+
+# ==============================
+# Bağımlılıklar & Paket Yöneticileri
+# ==============================
+node_modules/
+vendor/
+.venv/
+venv/
+env/
+__pypackages__/
+Pods/
+.cargo/
+
+# ==============================
+# Derleme, Çıktı & Dağıtım Klasörleri
+# ==============================
+dist/
+build/
+out/
+target/
+.next/
+.nuxt/
+bin/
+obj/
+*.class
+*.pyc
+*.pyo
+*.pyd
+*.o
+*.so
+*.dll
+*.exe
+
+# ==============================
+# Loglar & Geçici Dosyalar
+# ==============================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# ==============================
+# Test Çıktıları & Raporlar
+# ==============================
+coverage/
+.nyc_output/
+htmlcov/
+.pytest_cache/
+
+# ==============================
+# Veritabanları & Büyük Veri Setleri
+# ==============================
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.csv
+*.tsv
+*.parquet
+
+
+# ==============================
+# Medya, Asset & İkili (Binary) Dosyalar
+# ==============================
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.mp3
+*.mp4
+*.zip
+*.tar.gz
+*.rar
+*.pdf
+
+# ==============================
+# Editör & Sistem Klasörleri
+# ==============================
+.git/
+.svn/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ==============================
+# Özel Hariç Tutmalar (İsteğe Bağlı)
+# ==============================
+# Paket kilit dosyaları genellikle gereksiz token tüketir:
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+poetry.lock

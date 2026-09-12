@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epub-to-m4b"
+version = "0.1.8"
+description = "Yerel acik kaynak TTS motorlariyla EPUB dosyalarini bolumlu M4B sesli kitaplara donusturen masaustu uygulamasi."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "epub-to-m4b contributors" }]
+dependencies = [
+  "beautifulsoup4>=4.13,<5",
+  "platformdirs>=4.3,<5",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.8,<7"]
+trendyol = ["voxcpm==2.0.3", "soundfile>=0.13,<1"]
+xtts = ["coqui-tts==0.27.5", "transformers>=4.57,<5", "soundfile>=0.13,<1", "nvidia-ml-py>=12,<14"]
+xtts-deepspeed = ["deepspeed==0.19.6"]
+mms = ["transformers>=4.57,<5", "torch>=2.5", "soundfile>=0.13,<1"]
+dev = ["pytest>=8.3,<9", "ruff>=0.12,<1"]
+all-engines = [
+  "voxcpm==2.0.3",
+  "coqui-tts==0.27.5",
+  "transformers>=4.57,<5",
+  "torch>=2.5",
+  "torchaudio>=2.5",
+  "soundfile>=0.13,<1",
+  "nvidia-ml-py>=12,<14",
+]
+
+[project.scripts]
+epub2m4b = "epub2m4b.app:main"
+epub2m4b-cli = "epub2m4b.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
